@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include "vr_hand_interaction.h"
 
 #include "area.h"
 #include "audio/data.h"
@@ -292,6 +293,7 @@ void fadeout_level_music(s16 fadeTimer) {
  */
 void play_cutscene_music(u16 seqArgs) {
     play_music(SEQ_PLAYER_LEVEL, seqArgs, 0);
+    fprintf(stderr, "[CapAudio] start requested=%04x current=%04x\n", seqArgs, get_current_background_music());
     sCurrentMusic = seqArgs;
 }
 
@@ -317,6 +319,7 @@ void stop_shell_music(void) {
  * Called from threads: thread5_game_loop
  */
 void play_cap_music(u16 seqArgs) {
+    vr_hand_interaction_release_custom_music();
     // Collecting or extending two power-ups that share a sequence should
     // continue the existing music rather than restarting the same track.
     if (sCurrentCapMusic == seqArgs && !sCurrentCapMusicFading) {
@@ -335,6 +338,7 @@ void play_cap_music(u16 seqArgs) {
  */
 void fadeout_cap_music(void) {
     if (sCurrentCapMusic != MUSIC_NONE) {
+        fprintf(stderr, "[CapAudio] fade=%04x\n", sCurrentCapMusic);
         fadeout_background_music(sCurrentCapMusic, 600);
         sCurrentCapMusicFading = true;
     }
@@ -345,6 +349,7 @@ void fadeout_cap_music(void) {
  */
 void stop_cap_music(void) {
     if (sCurrentCapMusic != MUSIC_NONE) {
+        fprintf(stderr, "[CapAudio] stop=%04x\n", sCurrentCapMusic);
         stop_background_music(sCurrentCapMusic);
         sCurrentCapMusic = MUSIC_NONE;
         sCurrentCapMusicFading = false;

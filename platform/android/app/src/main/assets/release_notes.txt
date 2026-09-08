@@ -1,3 +1,17 @@
+## v0.9 — Visuals, Speedrunning and VR Improvements
+
+- Added Cell Shaded and expanded grayscale Super Mario Land filters, plus stationary crossed tree billboards enabled by default.
+- Fixed Character Select's floating theater presentation and improved menu text and modded health-meter hiding, alignment and scaling.
+- Added VR > Speedrunning: named splits, timer placement/size/color, progressive split reveal, controller start/split binding, and portable setup/LiveSplit split-file imports. Long names now fit the HUD name column instead of being truncated after 18 characters.
+- Improved Big Hands surface climbing, hand contacts, independent attachments, and extended grabbing/punching. Added headset interaction with treasure chests.
+- Added alternate special power-up music, preserving Sonic Shoes and original cap themes, and corrected replacement of the previous special power-up when collecting a new one.
+- Improved cap-grab behavior and added a missing-cap indicator on the life icon.
+- Corrected camera-turn lighting state and made script-error notices expire normally.
+- PC keyboard dictation now uses bundled offline Whisper. Press Mic again to finish and transcribe, or close the keyboard to cancel. CPU processing is faster with the same model; timing varies by hardware and VR load. Quest retains its Android recognizer with the same finish/cancel controls.
+- Updated the VR tutorial and player documentation. Retained large-map rendering optimizations, optional normal maps and the VR-specific updaters.
+
+PC: extract the entire ZIP, including the speech folder. No ROM is supplied; an existing user-provided ROM in the game's saved-data folder can be reused. LiveSplit plug-ins are not supported on Quest; imports use split names and times. PC speech under Wine/Proton has not been verified.
+
 ## v0.8.9 — Large-Map Performance Update
 
 - Major shared PC VR/Quest rendering optimization: batch vertex uploads while preserving draw order, textures, and render state. Dramatically improved the tested Sonic Adventure DX map on Quest; benefits apply to other maps using the same rendering path and vary by workload.

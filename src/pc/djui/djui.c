@@ -12,10 +12,13 @@
 #include "../debuglog.h"
 #include "pc/cliopts.h"
 #include "game/level_update.h"
+#include "game/rendering_graph_node.h"
 #include "pc/lua/smlua_hooks.h"
 #include "pc/vr/vr.h"
 #include "djui_panel_playerlist.h"
 #include "djui_hud_utils.h"
+#include "djui_notice_window.h"
+#include "game/game_init.h"
 #include "djui_inputbox.h"
 #include "engine/math_util.h"
 #include "pc/utils/misc.h"
@@ -29,7 +32,7 @@ struct DjuiRoot* gDjuiRoot = NULL;
 struct DjuiText* gDjuiPauseOptions = NULL;
 struct DjuiText* gDjuiModReload = NULL;
 static struct DjuiText* sDjuiLuaError = NULL;
-static u32 sDjuiLuaErrorTimeout = 0;
+static struct DjuiNoticeWindow sDjuiLuaErrorWindow;
 bool gDjuiInMainMenu = true;
 bool gDjuiInPlayerMenu = false;
 bool gDjuiDisabled = false;
@@ -55,7 +58,7 @@ void djui_shutdown(void) {
     gDjuiPauseOptions = NULL;
     gDjuiModReload = NULL;
     sDjuiLuaError = NULL;
-    sDjuiLuaErrorTimeout = 0;
+    sDjuiLuaErrorWindow.valid = false;
 
     if (gDjuiConsole) {
         djui_base_destroy(&gDjuiConsole->base);
@@ -187,12 +190,13 @@ void djui_lua_error(char* text, struct DjuiColor color) {
     if (!sDjuiLuaError) { return; }
     djui_base_set_color(&sDjuiLuaError->base, color.r, color.g, color.b, color.a);
     djui_text_set_text(sDjuiLuaError, text);
-    djui_base_set_visible(&sDjuiLuaError->base, true);
-    sDjuiLuaErrorTimeout = 30 * 5;
+    djui_notice_report(&sDjuiLuaErrorWindow, gGlobalTimer);
+    djui_base_set_visible(&sDjuiLuaError->base,
+        djui_notice_visible(&sDjuiLuaErrorWindow, gGlobalTimer));
 }
 
 void djui_lua_error_clear(void) {
-    sDjuiLuaErrorTimeout = 0;
+    sDjuiLuaErrorWindow.valid = false;
     djui_base_set_visible(&sDjuiLuaError->base, false);
 }
 
@@ -263,12 +267,22 @@ void djui_render(void) {
         gDisplayListHead += sHookHudRenderGfxSize / sizeof(Gfx);
     }
 
+    // Lua callbacks install their HUD projection. Native menu text must start
+    // again in the menu plane, even when the callback drew nothing this tick.
+    vr_finish_character_menu_capture();
+    create_dl_vr_ui_matrix();
+    djui_reset_hud_params();
+
     djui_panel_update();
     djui_popup_update();
 
     djui_lua_profiler_render();
 
     if (gDjuiRoot != NULL) {
+        if (sDjuiLuaError != NULL) {
+            djui_base_set_visible(&sDjuiLuaError->base,
+                djui_notice_visible(&sDjuiLuaErrorWindow, gGlobalTimer));
+        }
         djui_base_render(&gDjuiRoot->base);
     }
 
@@ -276,13 +290,6 @@ void djui_render(void) {
 
     djui_fps_display_render();
     djui_ctx_display_render();
-
-    if (sDjuiLuaErrorTimeout > 0) {
-        sDjuiLuaErrorTimeout--;
-        if (sDjuiLuaErrorTimeout == 0) {
-            djui_base_set_visible(&sDjuiLuaError->base, false);
-        }
-    }
 
     djui_cursor_update();
     djui_base_render(&gDjuiConsole->base);

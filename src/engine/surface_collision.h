@@ -93,6 +93,8 @@ If no gas is found, returns the default height of `gLevelValues.floorLowerLimit`
 f32 find_poison_gas_level(f32 x, f32 z);
 void debug_surface_list_info(f32 xPos, f32 zPos);
 void find_surface_on_ray(Vec3f orig, Vec3f dir, struct Surface **hit_surface, Vec3f hit_pos, f32 precision);
+// Complete cell coverage for short hand sweeps (at most one cell wide per axis).
+void find_surface_on_hand_ray(Vec3f orig, Vec3f dir, struct Surface **hit_surface, Vec3f hit_pos);
 
 /* |description|
 Sets whether collision finding functions should check wall directions.

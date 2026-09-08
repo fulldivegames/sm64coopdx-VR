@@ -45,6 +45,8 @@
 #include "gfx_rendering_api.h"
 #include "gfx_pc.h"
 #include "gfx_gl_submission.h"
+#include "gfx_menu_target.h"
+#include "gfx_cell_shaded.h"
 #include "../vr/vr.h"
 
 #define TEX_CACHE_STEP 512
@@ -2047,6 +2049,8 @@ static const char* gfx_opengl_get_name(void) {
 
 static void gfx_opengl_shutdown(void) {
     gfx_gl_queue_shutdown();
+    gfx_opengl_destroy_menu_target();
+    gfx_opengl_destroy_cell_shaded();
     opengl_enabled_attrib_mask = 0;
     opengl_attrib_layout_valid = false;
     opengl_color_filter_state_valid = false;
@@ -2108,5 +2112,8 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_finish_render,
     gfx_opengl_get_name,
     gfx_opengl_shutdown,
-    gfx_opengl_on_texture_uploaded
+    gfx_opengl_on_texture_uploaded,
+    gfx_opengl_begin_menu_target,
+    gfx_opengl_end_menu_target,
+    gfx_opengl_cell_shaded
 };

@@ -35,13 +35,20 @@ $requiredDirectories = @(
     "lang",
     "mods",
     "palettes",
-    "sonic_shoes"
+    "sonic_shoes",
+    "speech"
 )
 
 foreach ($file in $requiredFiles) {
     $candidate = Join-Path $buildPath $file
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
         throw "Missing required build file: $candidate. Build the Windows game before packaging."
+    }
+}
+$speechFiles = @('whisper-cli.exe','whisper-cli-avx2.exe','ggml-small-q5_1.bin','whisper-LICENSE.txt','model-LICENSE.txt','PC-DICTATION.txt')
+foreach ($file in $speechFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $buildPath "speech/$file") -PathType Leaf)) {
+        throw "Missing speech/$file. Run tools/prepare-pc-dictation.ps1 before packaging."
     }
 }
 
@@ -70,6 +77,8 @@ Copy-Item -LiteralPath (Join-Path $buildPath "libstdc++-6.dll") -Destination $st
 Copy-Item -LiteralPath (Join-Path $buildPath "libwinpthread-1.dll") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $buildPath "normal_maps.bin") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repoRoot "docs/PC-VR-PLAYER-GUIDE.txt") -Destination (Join-Path $stagePath "README.txt")
+Copy-Item -LiteralPath (Join-Path $repoRoot "tools/Launch-VR-Diagnostics.cmd") -Destination $stagePath
+Copy-Item -LiteralPath (Join-Path $repoRoot "docs/VR-SPEEDRUN.txt") -Destination $stagePath
 
 $licensesPath = Join-Path $stagePath "licenses"
 New-Item -ItemType Directory -Path $licensesPath | Out-Null
@@ -80,6 +89,14 @@ Copy-Item -LiteralPath (Join-Path $buildPath "gcc-COPYING3") -Destination (Join-
 Copy-Item -LiteralPath (Join-Path $buildPath "libwinpthread-COPYING") -Destination (Join-Path $licensesPath "libwinpthread-COPYING.txt")
 
 foreach ($directory in $requiredDirectories) {
+    if ($directory -eq 'speech') {
+        $speechStage = Join-Path $stagePath 'speech'
+        New-Item -ItemType Directory -Path $speechStage | Out-Null
+        foreach ($file in $speechFiles) {
+            Copy-Item -LiteralPath (Join-Path $buildPath "speech/$file") -Destination $speechStage
+        }
+        continue
+    }
     Copy-Item -LiteralPath (Join-Path $buildPath $directory) -Destination $stagePath -Recurse
 }
 

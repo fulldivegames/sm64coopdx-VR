@@ -16,13 +16,14 @@ static unsigned int sKnockbackIndex = 0;
 struct DjuiInputbox* sPlayerAmount = NULL;
 static bool sFalse = false;
 
-static void djui_panel_host_character_select(UNUSED struct DjuiBase* caller) {
+void djui_panel_host_character_select(UNUSED struct DjuiBase* caller) {
     if (!gGameInited) {
         djui_chat_message_create("Start a game before opening Character Select.");
         return;
     }
     game_unpause();
     djui_panel_shutdown();
+    smlua_character_menu_return_to_pause();
     queue_chat_command("/char-select menu");
 }
 
@@ -89,9 +90,6 @@ void djui_panel_host_settings_create(struct DjuiBase* caller) {
         struct DjuiCheckbox* chkDevMode = djui_checkbox_create(body, DLANG(HOST_SETTINGS, MOD_DEV_MODE), (configNetworkSystem == NS_SOCKET) ? &configModDevMode : &sFalse, NULL);
         djui_base_set_enabled(&chkDevMode->base, configNetworkSystem == NS_SOCKET);
 
-        if (smlua_chat_command_exists("char-select")) {
-            djui_button_create(body, "Character Select", DJUI_BUTTON_STYLE_NORMAL, djui_panel_host_character_select);
-        }
         struct DjuiRect* rect1 = djui_rect_container_create(body, 32);
         {
             struct DjuiText* text1 = djui_text_create(&rect1->base, DLANG(HOST_SETTINGS, AMOUNT_OF_PLAYERS));

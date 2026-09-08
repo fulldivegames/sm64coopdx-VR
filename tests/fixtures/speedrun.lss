@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Run version="1.7.0"><GameName>Super Mario 64</GameName><CategoryName>Test</CategoryName>
+<Segments>
+<Segment><Name>Bob-omb &amp; Battlefield</Name><SplitTimes><SplitTime name="Personal Best"><RealTime>00:01:01.2500000</RealTime></SplitTime></SplitTimes></Segment>
+<Segment><Name>Finish</Name><SplitTimes><SplitTime name="Personal Best"><RealTime>00:02:30</RealTime></SplitTime></SplitTimes></Segment>
+</Segments></Run>

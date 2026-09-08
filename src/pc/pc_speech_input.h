@@ -9,8 +9,10 @@ extern "C" {
 
 bool pc_speech_recognition_start(void);
 void pc_speech_recognition_cancel(void);
+void pc_speech_recognition_stop(void);
 bool pc_speech_recognition_poll(char* text, size_t textSize);
 bool pc_speech_recognition_is_listening(void);
+bool pc_speech_recognition_error(char* text, size_t textSize);
 
 #ifdef __cplusplus
 }

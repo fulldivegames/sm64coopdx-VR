@@ -13,9 +13,29 @@
   Native ARM64/OpenXR VR for Meta Quest. No PC is required after installation.
 </p>
 
-> **Current release: v0.8.9 — Large-Map Performance Update**
+> **Current release: v0.9 — Visuals, Speedrunning and VR Improvements**
 
 ### What's new
+
+This release includes an expanded **VR Tutorial**: Big Hands
+grabbing, climbing and punching; **VR > Speedrunning** with named splits,
+progressive split display and portable LiveSplit imports; visual filters
+including **Cell Shaded**; stationary crossed trees; and the floating Character
+Select panel. See [the player guide](docs/PC-VR-PLAYER-GUIDE.txt) and
+[speedrunning setup instructions](docs/VR-SPEEDRUN.txt) for the current controls.
+PC keyboard dictation now uses bundled offline Whisper, with faster CPU
+processing and press-again-to-finish input. Quest retains Android dictation.
+Keep the PC package's `speech` folder beside the executable; no audio is uploaded
+by the PC recognizer. See [dictation details](docs/PC-DICTATION.txt).
+
+- Corrected Character Select theater rendering, menu text, and modded health-meter placement, hiding and alignment.
+- Longer split names now fit the HUD name column instead of being cut off after 18 characters.
+- Added alternate special power-up music while preserving Sonic Shoes and original cap themes; corrected power-up replacement behavior.
+- Improved hand surface contacts and climbing, and added headset interaction with treasure chests.
+- Script-error notifications now expire instead of remaining indefinitely.
+- Retained ROM validation: PC can reuse a previously supplied ROM in its user-data folder. A new extraction does not require another copy when a valid saved ROM is available.
+
+Retained from the previous release:
 
 - Shared PC VR/Quest renderer now batches vertex uploads while preserving draw order and render state. This greatly improved the tested Sonic Adventure DX map on Quest and applies to other maps using the same renderer; gains depend on the map and hardware.
 - First public Big Hands power-up, included in the special spawn pool: extended grabbing, punching, and terrain climbing, with independent hand contacts and 1.5x increased reach.

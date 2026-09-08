@@ -8,7 +8,7 @@
 // For RDP commands, use decrementing numbers starting from ff.
 // Please update the following table when implementing a new command.
 //
-// RSP ->                     09 0a 0b 0c 0d 0e 0f
+// RSP ->                        0a 0b 0c 0d 0e 0f
 //             14 15 16 17 18 19 1a 1b 1c 1d 1e 1f
 // 20 21 22 23 24 25 26 27 28 29 2a 2b 2c 2d 2e 2f
 // 30 31 32 33 34 35 36 37 38 39 3a 3b 3c 3d 3e 3f
@@ -228,6 +228,19 @@
 /////////////////
 
 #define G_STATE_EXT     0x10
+
+// Capture a 2D menu, then composite it with the supplied per-eye matrix.
+#define G_MENU_TARGET_EXT 0x09
+#define gSPCellShaded(pkt) { \
+    Gfx *_g = (Gfx *)(pkt); \
+    _g->words.w0 = _SHIFTL(G_MENU_TARGET_EXT,24,8) | 2; \
+    _g->words.w1 = 0; \
+}
+#define gSPMenuTarget(pkt, begin, matrix) { \
+    Gfx *_g = (Gfx *)(pkt); \
+    _g->words.w0 = _SHIFTL(G_MENU_TARGET_EXT,24,8) | ((begin) ? 1 : 0); \
+    _g->words.w1 = (uintptr_t)(matrix); \
+}
 
 #define G_STATE_LOAD    0
 #define G_STATE_SAVE    1

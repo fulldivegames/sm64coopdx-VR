@@ -1,0 +1,47 @@
+VR SPEEDRUN TIMER / COUNTER - PREVIEW
+
+VR Settings -> Speedrunning.
+Choose Split Count, then press Confirm directly below it. Confirm applies the
+count and resets the timer; changing the slider alone does not change a run.
+Existing names are kept when changing the count. Name Your Splits opens editable
+names using the usual keyboard (including the in-headset keyboard).
+Confirm and closing the name editor save your setup to speedrun/local.json.
+That local setup is restored next launch; imported files are not overwritten.
+Enable Show Timer and Splits, then choose its size and position. The horizontal
+range now extends 160 HUD units farther left than the old minimum. Text defaults
+to yellow; Text Color offers the same preset swatches as the palette editor.
+Start / Split starts timing on the first press, records a split on subsequent
+presses, and stops timing on the last split. Reset prepares a new attempt.
+Pause / Resume pauses the timer explicitly; opening a game menu does not pause
+real-time timing. Completed split names and elapsed times stay in the HUD list.
+Optional Reveal Splits as You Go starts with only the first split, then adds
+the next row whenever you finish a split. Completed rows remain visible; reset
+returns to the first row. It is off by default and does not change your run.
+Up to 16 rows are visible together; longer runs scroll to keep the current split
+visible. All Split Results shows the full list in the menu. Counter Only has
+been removed. Names longer than the HUD row are shortened only for display.
+Controller Bindings -> Timer Start / Split assigns the same action to a button.
+It is unbound by default. Avoid assigning it to a button used for gameplay.
+
+Open the timer settings once to create the speedrun folder alongside your mods,
+saves and palettes in the game's user-data directory. On PC use the game menu's
+Open Save Folder option to locate it. On Quest it is in the same SM64 data folder
+where you put mods. Never replace or delete that parent folder to install setups.
+
+Import / Export Setups is optional, and explains these actions in-game.
+You can prepare setups on a PC and copy them to either Quest or PC:
+- Copy a LiveSplit 1.8.x split file as speedrun/run.lss, then choose Import.
+  Imports segment names and Personal Best RealTime values (up to 120 segments).
+  Does not change the original file. This is a manual real-time timer, not an
+  auto-splitter, and does not reproduce LiveSplit's Windows layout plug-ins.
+- Copy a portable JSON setup as speedrun/setup.json, then choose Load.
+  Example:
+  {"version":1,"segments":[{"name":"First Star","best_seconds":60},
+                           {"name":"Finish","best_seconds":120}]}
+- Save writes speedrun/export.json, including recorded last_seconds values.
+  Copy it between devices and rename the copy to setup.json to load it.
+  Existing export.json is not overwritten; rename it before exporting again.
+
+The preview importer accepts ordinary XML without DTDs, comments or CDATA.
+Layout (.lsl), external scripts, Windows DLL components and network-connected
+LiveSplit mirroring are not implemented by this portable timer.

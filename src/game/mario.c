@@ -2776,6 +2776,15 @@ u64 sCapFlickerFrames = 0x4444449249255555;
  */
 u32 update_and_return_cap_flags(struct MarioState *m) {
     if (!m) { return 0; }
+    // Temporary, rate-limited diagnostics: distinguish a short configured timer
+    // from repeated action updates or a later reset without changing duration.
+    static u32 capLogFrame = 0;
+    if (m->playerIndex == 0 && m->capTimer > 0 &&
+        (u32)(gGlobalTimer - capLogFrame) >= 30) {
+        capLogFrame = gGlobalTimer;
+        fprintf(stderr, "[CapAudio] tick=%u remaining=%u flags=%08x action=%08x\n",
+                gGlobalTimer, m->capTimer, m->flags, m->action);
+    }
     u32 flags = m->flags;
     u32 action;
 
@@ -2789,7 +2798,7 @@ u32 update_and_return_cap_flags(struct MarioState *m) {
         }
 
         if (m->capTimer == 0) {
-            stop_cap_music();
+            if (m->playerIndex == 0) stop_cap_music();
 
             m->flags &= ~MARIO_SPECIAL_CAPS;
             if (!(m->flags & MARIO_CAPS)) {
@@ -2798,7 +2807,7 @@ u32 update_and_return_cap_flags(struct MarioState *m) {
         }
 
         if (m->capTimer == 60) {
-            fadeout_cap_music();
+            if (m->playerIndex == 0) fadeout_cap_music();
         }
 
         // This code flickers the cap through a long binary string, increasing in how

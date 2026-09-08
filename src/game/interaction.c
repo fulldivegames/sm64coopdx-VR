@@ -2322,6 +2322,9 @@ u32 interact_cap(struct MarioState *m, UNUSED u32 interactType, struct Object *o
     }
 
     if (m->action != ACT_GETTING_BLOWN && capFlag != 0) {
+        if (vr_is_active() && (capFlag & MARIO_SPECIAL_CAPS)) {
+            vr_special_moves_replace_powerup();
+        }
         m->interactObj = o;
         o->oInteractStatus = INT_STATUS_INTERACTED;
 
@@ -2364,6 +2367,8 @@ u32 interact_cap(struct MarioState *m, UNUSED u32 interactType, struct Object *o
         play_character_sound(m, CHAR_SOUND_HERE_WE_GO);
 
         if (capMusic != 0) {
+            fprintf(stderr, "[CapAudio] pickup flags=%08x timer=%u sequence=%04x\n",
+                    capFlag, m->capTimer, capMusic);
             play_cap_music(capMusic);
         }
         network_send_collect_item(o);

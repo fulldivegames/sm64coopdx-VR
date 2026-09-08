@@ -248,6 +248,36 @@ static f32 sPerspectiveAspect = 0;
 static Mtx** sVrUiMatrices = NULL;
 static u32 sVrUiMatrixCount = 0;
 static u32 sVrUiMatrixCapacity = 0;
+static Mtx** sVrCharacterMenuMatrices = NULL;
+static u32 sVrCharacterMenuCount = 0;
+static u32 sVrCharacterMenuCapacity = 0;
+static bool sVrCharacterMenuRender = false;
+static bool sVrCharacterMenuScene = false;
+static Mtx *sVrCharacterMenuPanel = NULL;
+static bool sVrCharacterMenuPoseValid = false;
+static u32 sVrCharacterMenuLastFrame = 0;
+static float sVrCharacterMenuPosition[3];
+static float sVrCharacterMenuRotation[4];
+
+void vr_set_character_menu_render(bool enabled) {
+    sVrCharacterMenuRender = enabled;
+    if (enabled) {
+        if ((u32)(gGlobalTimer - sVrCharacterMenuLastFrame) > 1) {
+            sVrCharacterMenuPoseValid = false;
+        }
+        sVrCharacterMenuLastFrame = gGlobalTimer;
+    }
+}
+
+bool vr_character_menu_capture_active(void) {
+    return sVrCharacterMenuRender;
+}
+
+void vr_finish_character_menu_capture(void) {
+    if (!sVrCharacterMenuRender) return;
+    gSPMenuTarget(gDisplayListHead++, false, sVrCharacterMenuPanel);
+    vr_set_character_menu_render(false);
+}
 static Mtx** sVrHudMatrices = NULL;
 static u32 sVrHudMatrixCount = 0;
 static u32 sVrHudMatrixCapacity = 0;
@@ -509,7 +539,7 @@ static void vr_update_painting_exit_hat_gesture(void) {
         if (!vr_get_controller_state(hand, &states[hand])) {
             continue;
         }
-        tracked[hand] = vr_get_controller_world_fist_from_state(
+        tracked[hand] = vr_get_controller_world_fist_raw_from_state(
             hand,
             &states[hand],
             hands[hand],
@@ -532,7 +562,8 @@ static void vr_update_painting_exit_hat_gesture(void) {
     bool triggerPressedEdge[VR_CONTROLLER_COUNT] = { false, false };
     for (u32 hand = 0; hand < VR_CONTROLLER_COUNT; hand++) {
         const bool triggerDown =
-            tracked[hand] && states[hand].trigger >= 0.55f;
+            tracked[hand] && states[hand].trigger >= 0.55f &&
+            states[hand].squeeze >= 0.55f;
         triggerPressedEdge[hand] =
             triggerDown && !sVrPaintingExitHatTriggerDown[hand];
         sVrPaintingExitHatTriggerDown[hand] = triggerDown;
@@ -724,6 +755,7 @@ Mtx* gBackgroundSkyboxMtx = NULL;
 static struct GraphNodeBackground* sBackgroundNode = NULL;
 static struct GraphNodeRoot* sBackgroundNodeRoot = NULL;
 static struct GraphNodeCamera* sCameraNode = NULL;
+static Mtx* sCameraLightingInverseMtx = NULL;
 static struct GraphNodeMasterList* sVrControllerHandMasterList = NULL;
 
 static struct GrowingArray* sShadowInterp = NULL;
@@ -2826,7 +2858,7 @@ static void vr_build_game_camera_matrix(
     // normal single-screen camera. Doing so renders a first-person view while
     // Mario's vanilla stick yaw is still based on the third-person camera,
     // making every flat-screen direction appear exactly 180 degrees reversed.
-    if (!vr_is_active()) {
+    if (!vr_is_active() || sVrCharacterMenuScene) {
         sVrFirstPersonAnchorValid = false;
         mtxf_lookat(matrix, position, focus, roll);
         return;
@@ -4132,6 +4164,7 @@ void patch_mtx_before(void) {
     sVrAudioListenerValid = false;
     init_mtx();
     sVrUiMatrixCount = 0;
+    sVrCharacterMenuCount = 0;
     sVrHudMatrixCount = 0;
     sVrWorldLabelMatrixCount = 0;
 
@@ -4184,6 +4217,11 @@ static bool vr_grow_matrix_list(
 }
 
 void register_mtx_vr_ui(Mtx *matrix) {
+    if (sVrCharacterMenuRender) {
+        // Captured menu layers stay orthographic. Only the final panel gets
+        // the per-eye tracking transform.
+        return;
+    }
     if (matrix == NULL || !vr_grow_matrix_list(
             &sVrUiMatrices,
             &sVrUiMatrixCapacity,
@@ -4194,7 +4232,15 @@ void register_mtx_vr_ui(Mtx *matrix) {
     sVrUiMatrices[sVrUiMatrixCount++] = matrix;
 }
 
+bool register_mtx_vr_character_panel(Mtx *matrix) {
+    if (matrix == NULL || !vr_grow_matrix_list(&sVrCharacterMenuMatrices,
+            &sVrCharacterMenuCapacity, sVrCharacterMenuCount + 1)) return false;
+    sVrCharacterMenuMatrices[sVrCharacterMenuCount++] = matrix;
+    return true;
+}
+
 void register_mtx_vr_hud(Mtx *matrix) {
+    if (sVrCharacterMenuRender) return;
     if (matrix == NULL || !vr_grow_matrix_list(
             &sVrHudMatrices,
             &sVrHudMatrixCapacity,
@@ -4279,9 +4325,10 @@ static bool vr_build_hand_ui_projection(
     unsigned int anchor,
     Mtx* fixedProjection
 ) {
+    const bool theater = anchor == 3;
     if (eyeIndex >= 2 || fixedProjection == NULL ||
         anchor < VR_UI_ANCHOR_LEFT_HAND ||
-        anchor > VR_UI_ANCHOR_RIGHT_HAND) {
+        (!theater && anchor > VR_UI_ANCHOR_RIGHT_HAND)) {
         return false;
     }
 
@@ -4293,8 +4340,8 @@ static bool vr_build_hand_ui_projection(
     float headTranslation[3] = { 0 };
     float eyeOffset[3] = { 0 };
     float headRotation[4] = { 0 };
-    if (!vr_get_controller_state(hand, &state) ||
-        (!state.gripPoseValid && !state.aimPoseValid) ||
+    if ((!theater && (!vr_get_controller_state(hand, &state) ||
+        (!state.gripPoseValid && !state.aimPoseValid))) ||
         !vr_get_eye_tangents(eyeIndex, eyeTangents) ||
         !vr_get_head_translation(headTranslation) ||
         !vr_get_head_rotation(headRotation) ||
@@ -4302,10 +4349,15 @@ static bool vr_build_hand_ui_projection(
         return false;
     }
 
-    const float* position = state.gripPoseValid
+    if (theater && !sVrCharacterMenuPoseValid) {
+        memcpy(sVrCharacterMenuPosition, headTranslation, sizeof(headTranslation));
+        memcpy(sVrCharacterMenuRotation, headRotation, sizeof(headRotation));
+        sVrCharacterMenuPoseValid = true;
+    }
+    const float* position = theater ? sVrCharacterMenuPosition : state.gripPoseValid
         ? state.gripPosition
         : state.aimPosition;
-    const float* rotation = state.aimPoseValid
+    const float* rotation = theater ? sVrCharacterMenuRotation : state.aimPoseValid
         ? state.aimRotation
         : state.gripRotation;
     Vec3f right = { 1.0f, 0.0f, 0.0f };
@@ -4320,7 +4372,7 @@ static bool vr_build_hand_ui_projection(
     // translation update once per submitted headset frame rather than at the
     // 30 Hz gameplay rate.
     const f32 unitsPerMeter = 100.0f;
-    const f32 panelWidth = 32.0f;
+    const f32 panelWidth = theater ? 160.0f : 32.0f;
     const f32 panelHeight = panelWidth *
         (f32)SCREEN_HEIGHT / (f32)SCREEN_WIDTH;
     Vec3f panelRight = { right[0], right[1], right[2] };
@@ -4331,8 +4383,18 @@ static bool vr_build_hand_ui_projection(
         position[2] * unitsPerMeter + up[2] * 9.0f - backward[2] * 2.0f
     };
 
+    if (theater) {
+        vec3f_copy(panelUp, up);
+        for (u32 axis = 0; axis < 3; axis++) {
+            center[axis] = position[axis] * unitsPerMeter - backward[axis] * 150.0f;
+        }
+    }
+
     Mat4 panel;
     mtxf_identity(panel);
+    // The selector's layers are draw ordered on one physical plane. Logical
+    // HUD Z increments must not shift them through one another in stereo.
+    if (theater) panel[2][2] = 0.0f;
     for (u32 axis = 0; axis < 3; axis++) {
         panel[0][axis] = panelRight[axis] *
             panelWidth / (f32)SCREEN_WIDTH;
@@ -4462,7 +4524,7 @@ static bool vr_build_world_label_projection(
 }
 
 static void patch_mtx_vr_ui(uint32_t eyeIndex) {
-    if (sVrUiMatrixCount == 0 && sVrHudMatrixCount == 0 &&
+    if (sVrUiMatrixCount == 0 && sVrHudMatrixCount == 0 && sVrCharacterMenuCount == 0 &&
         sVrWorldLabelMatrixCount == 0) {
         return;
     }
@@ -4531,6 +4593,13 @@ static void patch_mtx_vr_ui(uint32_t eyeIndex) {
         1.0f
     );
     Mtx menuProjection;
+    Mtx characterProjection;
+    if (sVrCharacterMenuCount > 0 &&
+        vr_build_hand_ui_projection(eyeIndex, 3, &characterProjection)) {
+        for (u32 i = 0; i < sVrCharacterMenuCount; i++) {
+            memcpy(sVrCharacterMenuMatrices[i], &characterProjection, sizeof(Mtx));
+        }
+    }
     const bool handMenu = vr_build_hand_ui_projection(
         eyeIndex,
         configVrMenuAnchor,
@@ -4606,6 +4675,15 @@ static void patch_mtx_perspective(
     bool patchBillboards
 ) {
     if (sPerspectiveNode == NULL) {
+        return;
+    }
+
+    if (sVrCharacterMenuScene) {
+        // Character Select's camera is a flat preview within the theater.
+        // Both eyes see the same preview; stereo belongs to the final panel.
+        u16 norm;
+        guPerspective(sPerspectiveMtx, &norm, sPerspectiveNode->fov,
+            sPerspectiveAspect, 1.0f, sPerspectiveNode->far, 1.0f);
         return;
     }
 
@@ -4744,6 +4822,7 @@ void patch_mtx_vr_projection(
 }
 
 void patch_mtx_vr_shared(void) {
+    if (sVrCharacterMenuScene) return;
     // OpenXR eye separation belongs entirely in the projection/view matrix.
     // These model transforms are headset/controller-relative and therefore
     // identical for both eyes, so prepare them once per submitted XR frame.
@@ -5104,9 +5183,14 @@ void patch_mtx_interpolated(f32 delta) {
             sCameraNode->roll
         );
         mtxf_to_mtx(&camInterp, camInterp.m);
+        // Model matrices below use this interpolated camera. Lighting must
+        // remove that same transform, rather than the current game-tick view.
+        if (sCameraLightingInverseMtx != NULL) {
+            mtxf_inverse(sCameraLightingInverseMtx->m, camInterp.m);
+        }
     }
 
-    const bool vrActive = vr_is_active();
+    const bool vrActive = vr_is_active() && !sVrCharacterMenuScene;
     for (u32 i = 0; i < sMtxTbl->count; i++) {
         struct MtxInterp *interp = sMtxTbl->buffer[i];
         Gfx *pos = interp->pos;
@@ -5349,7 +5433,7 @@ static void vr_append_controller_hands(
     struct RenderModeContainer* modeList,
     struct RenderModeContainer* mode2List
 ) {
-    if (!vr_is_active() ||
+    if (sVrCharacterMenuScene || !vr_is_active() ||
         configVrCameraMode != VR_CAMERA_MODE_FIRST_PERSON ||
         !configVrMotionControllerInput ||
         !enableZBuffer ||
@@ -5790,6 +5874,32 @@ static Gfx* vr_make_ghost_button_punch_display_list(void* displayList) {
     return gfxHead;
 }
 
+static bool vr_crossed_tree(const struct Object *object) {
+    return configVrCrossedTreeBillboards && object != NULL &&
+        obj_has_behavior((struct Object *)object, bhvTree) &&
+        !(object->header.gfx.sharedChild != NULL &&
+          (object->header.gfx.sharedChild->extraFlags & GRAPH_EXTRA_FORCE_3D));
+}
+
+static void *vr_crossed_tree_display_list(void *displayList) {
+    Mtx *rotation = alloc_display_list(sizeof(Mtx));
+    Gfx *list = alloc_display_list(9 * sizeof(Gfx));
+    if (rotation == NULL || list == NULL) return displayList;
+    guRotate(rotation, 90.0f, 0.0f, 1.0f, 0.0f);
+    Gfx *head = list;
+    // One tree, two double-sided planes. Preserve collision and object state.
+    gSPSaveState(head++, G_STATE_GEOMETRY_MODE);
+    gSPClearGeometryMode(head++, G_CULL_BOTH);
+    gSPDisplayList(head++, displayList);
+    gSPMatrix(head++, rotation, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+    gSPClearGeometryMode(head++, G_CULL_BOTH);
+    gSPDisplayList(head++, displayList);
+    gSPPopMatrix(head++, G_MTX_MODELVIEW);
+    gSPLoadState(head++, G_STATE_GEOMETRY_MODE);
+    gSPEndDisplayList(head++);
+    return list;
+}
+
 static void geo_append_display_list(void *displayList, s16 layer) {
     // First-person VR uses the regular animated Mario model for the torso and
     // lower body, but tracked gloves replace its head, arms, and hands. Keep
@@ -5818,20 +5928,24 @@ static void geo_append_display_list(void *displayList, s16 layer) {
         listNode->transform = gMatStackFixed[gMatStackIndex];
         listNode->transformPrev = gMatStackPrevFixed[gMatStackIndex];
         listNode->displayList = displayList;
+        const bool crossedTree = vr_crossed_tree(gCurGraphNodeProcessingObject);
+        if (crossedTree) {
+            listNode->displayList = vr_crossed_tree_display_list(displayList);
+        }
         listNode->next = 0;
         listNode->usingCamSpace = sUsingCamSpace;
         listNode->billboard = VR_BILLBOARD_NONE;
         listNode->owner = gCurGraphNodeProcessingObject;
-        if (sUsingBillboard ||
+        if (!crossedTree && (sUsingBillboard ||
             (gCurGraphNodeObject != NULL &&
-             (gCurGraphNodeObject->node.flags & GRAPH_RENDER_BILLBOARD))) {
+             (gCurGraphNodeObject->node.flags & GRAPH_RENDER_BILLBOARD)))) {
             // GEO_BILLBOARD body parts and ordinary billboard objects must
             // face the complete HMD pose. Treating all of them as cylindrical
             // kept trees upright, but flattened coins, bowling balls, and
             // Bob-omb bodies when the player looked up or down. Trees already
             // request GRAPH_RENDER_CYLBOARD explicitly in VR below.
             listNode->billboard = VR_BILLBOARD_FULL;
-        } else if (gCurGraphNodeObject != NULL &&
+        } else if (!crossedTree && gCurGraphNodeObject != NULL &&
                    (gCurGraphNodeObject->node.flags & GRAPH_RENDER_CYLBOARD)) {
             listNode->billboard = VR_BILLBOARD_CYLINDRICAL;
         }
@@ -5930,7 +6044,7 @@ static void geo_process_perspective(struct GraphNodePerspective *node) {
     gSPPerspNormalize(gDisplayListHead++, perspNorm);
     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
 
-    if (vr_is_active() &&
+    if (vr_is_active() && !sVrCharacterMenuScene &&
         gVrSkyDomeGfx != NULL &&
         gVrSkyProjectionMtx != NULL &&
         gVrSkyDomeFrame == gGlobalTimer) {
@@ -6059,6 +6173,7 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
     if (mtxf_inverse_non_affine(invCameraMatrix, gCamera->mtx)) {
         Mtx *invMtx = alloc_display_list(sizeof(Mtx));
         mtxf_to_mtx(invMtx, invCameraMatrix);
+        sCameraLightingInverseMtx = invMtx;
         gSPMatrix(gDisplayListHead++, invMtx, G_MTX_INVERSE_CAMERA_EXT);
     }
 
@@ -6266,6 +6381,8 @@ static void geo_process_scale_xyz(struct GraphNodeScaleXYZ *node) {
  */
 static void geo_process_billboard(struct GraphNodeBillboard *node) {
     Vec3f translation;
+    const bool crossedTree = vr_crossed_tree(gCurGraphNodeProcessingObject);
+    Mat4 treeTranslation;
 
     // Sanity check our stack index, If we above or equal to our stack size. Return to prevent OOB\.
     if ((gMatStackIndex + 1) >= MATRIX_STACK_SIZE) { LOG_ERROR("Preventing attempt to exceed the maximum size %i for our matrix stack with size of %i.", MATRIX_STACK_SIZE - 1, gMatStackIndex); return; }
@@ -6274,17 +6391,29 @@ static void geo_process_billboard(struct GraphNodeBillboard *node) {
 
     // current frame
     vec3s_to_vec3f(translation, node->translation);
-    mtxf_billboard(gMatStack[nextMatStackIndex], gMatStack[gMatStackIndex], translation, gCurGraphNodeCamera->roll);
+    if (crossedTree) {
+        mtxf_translate(treeTranslation, translation);
+        mtxf_mul(gMatStack[nextMatStackIndex], treeTranslation, gMatStack[gMatStackIndex]);
+    } else {
+        mtxf_billboard(gMatStack[nextMatStackIndex], gMatStack[gMatStackIndex], translation, gCurGraphNodeCamera->roll);
+    }
 
     // previous frame
     geo_update_interpolation(node->translation, NULL, NULL,
         if (geo_should_interpolate(interp)) {
             vec3s_to_vec3f(translation, interp->translation);
         }
-        mtxf_billboard(gMatStackPrev[nextMatStackIndex], gMatStackPrev[gMatStackIndex], translation, gCurGraphNodeCamera->roll);
+        if (crossedTree) {
+            mtxf_translate(treeTranslation, translation);
+            mtxf_mul(gMatStackPrev[nextMatStackIndex], treeTranslation, gMatStackPrev[gMatStackIndex]);
+        } else {
+            mtxf_billboard(gMatStackPrev[nextMatStackIndex], gMatStackPrev[gMatStackIndex], translation, gCurGraphNodeCamera->roll);
+        }
     );
 
-    if (gCurGraphNodeHeldObject != NULL) {
+    if (crossedTree) {
+        // Static transforms retain the parent's scale already.
+    } else if (gCurGraphNodeHeldObject != NULL) {
         mtxf_scale_vec3f(gMatStack[nextMatStackIndex], gMatStack[nextMatStackIndex],
                          gCurGraphNodeHeldObject->objNode->header.gfx.scale);
         mtxf_scale_vec3f(gMatStackPrev[nextMatStackIndex], gMatStackPrev[nextMatStackIndex],
@@ -6372,7 +6501,7 @@ static void geo_process_background(struct GraphNodeBackground *node) {
     }
 
     const bool vrSkyDomeReady =
-        vr_is_active() &&
+        vr_is_active() && !sVrCharacterMenuScene &&
         gVrSkyDomeGfx != NULL &&
         gVrSkyDomeFrame == gGlobalTimer;
 
@@ -7414,7 +7543,7 @@ static void geo_process_object(struct Object *node) {
     s32 hasAnimation = (node->header.gfx.node.flags & GRAPH_RENDER_HAS_ANIMATION) != 0;
     Vec3f scalePrev;
     const bool localMarioInVrFirstPerson =
-        vr_is_active() &&
+        vr_is_active() && !sVrCharacterMenuScene &&
         configVrCameraMode == VR_CAMERA_MODE_FIRST_PERSON &&
         node == gMarioStates[0].marioObj;
     const bool hidePhysicalClimbBody =
@@ -7462,7 +7591,7 @@ static void geo_process_object(struct Object *node) {
         }
     }
 
-    bool noBillboard = (node->header.gfx.sharedChild && node->header.gfx.sharedChild->extraFlags & GRAPH_EXTRA_FORCE_3D);
+    bool noBillboard = vr_crossed_tree(node) || (node->header.gfx.sharedChild && node->header.gfx.sharedChild->extraFlags & GRAPH_EXTRA_FORCE_3D);
     if (node->header.gfx.areaIndex == gCurGraphNodeRoot->areaIndex) {
         if (node->header.gfx.throwMatrix != NULL) {
 
@@ -8096,6 +8225,7 @@ static void geo_clear_interp_variables(void) {
     sVrHeldMatrixHead = NULL;
     sUsingBillboard = FALSE;
     sCameraNode = NULL;
+    sCameraLightingInverseMtx = NULL;
     sVrControllerHandMasterList = NULL;
     memset(
         sVrControllerHandMatrices,
@@ -8114,6 +8244,8 @@ static void geo_clear_interp_variables(void) {
 void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) {
     // clear interp stuff
     geo_clear_interp_variables();
+    sVrCharacterMenuScene = false;
+    sVrCharacterMenuRender = false;
 
     if (node->node.flags & GRAPH_RENDER_ACTIVE) {
         gDisplayListHeap = growing_pool_init(gDisplayListHeap, DISPLAY_LIST_HEAP_SIZE);
@@ -8123,6 +8255,17 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
 
         Mtx *initialMatrix = alloc_display_list(sizeof(*initialMatrix));
         if (initialMatrix == NULL) { return; }
+
+        if (smlua_character_menu_is_open()) {
+            sVrCharacterMenuPanel = alloc_display_list(sizeof(Mtx));
+            if (sVrCharacterMenuPanel != NULL &&
+                register_mtx_vr_character_panel(sVrCharacterMenuPanel)) {
+                guOrtho(sVrCharacterMenuPanel, 0, SCREEN_WIDTH, 0, SCREEN_HEIGHT, -10, 10, 1);
+                sVrCharacterMenuScene = true;
+                vr_set_character_menu_render(true);
+                gSPMenuTarget(gDisplayListHead++, true, NULL);
+            }
+        }
 
         gMatStackIndex = 0;
         gCurAnimType = 0;

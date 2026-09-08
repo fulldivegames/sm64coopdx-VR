@@ -1,0 +1,31 @@
+PC VR offline dictation
+
+Press Mic, speak, then press Mic again to finish and transcribe. A pause after
+speech can also finish capture. Closing the keyboard cancels instead. Keep the
+keyboard open while recognition completes. Capture is limited to 30 seconds.
+
+This PC build uses whisper.cpp b4938 with the multilingual Whisper small Q5_1
+model. It does NOT use Windows SAPI. Audio stays on this computer, passes to
+the bundled helper through memory pipes, and is not saved or uploaded. No API
+key, Windows speech-language installation, or online speech service is needed.
+
+Keep the complete speech folder beside the game executable. It adds about
+190 MB for the model plus the statically linked MinGW runtime. No MSVC
+redistributable is needed. An accelerated AVX2/FMA/F16C executable is selected
+only when the CPU/OS supports it; other CPUs use the generic x64 executable.
+Recognition runs only after capture,
+using up to six low-priority CPU threads, capped at half the logical processors
+(minimum one); it does not use the VR GPU. Processing time
+depends on CPU and utterance length. Speech recognition can make mistakes.
+The generic CPU fallback can take minutes; short phrases are recommended on
+older CPUs. Closing the keyboard cancels processing immediately.
+
+Select your headset microphone as the operating system's default recording
+device. Wine/Proton should route this ordinary SDL capture device, but Wine
+compatibility has NOT been verified. Native Linux builds are not enabled by
+this Windows packaging change. Quest still uses its working Android service.
+
+Runtime: https://github.com/ggml-org/whisper.cpp/releases/tag/b4938
+Model: https://huggingface.co/ggerganov/whisper.cpp
+Runtime and model licenses are included alongside this file (MIT).
+Model SHA256: ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb

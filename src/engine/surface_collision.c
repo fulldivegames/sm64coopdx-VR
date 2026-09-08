@@ -1209,6 +1209,38 @@ void find_surface_on_ray_cell(s16 cellX, s16 cellZ, Vec3f orig, Vec3f normalized
     }
 }
 
+void find_surface_on_hand_ray(Vec3f orig, Vec3f dir, struct Surface **hit_surface, Vec3f hit_pos) {
+    *hit_surface = NULL;
+    vec3f_sum(hit_pos, orig, dir);
+    const f32 length = vec3f_length(dir);
+    if (!isfinite(length) || length <= 0.01f || length > CELL_SIZE) {
+        return;
+    }
+    // The sampled general-purpose ray may check only its starting cell when
+    // length < CELL_SIZE / precision. A hand can still cross a partition
+    // boundary in that distance. Visit the complete short-ray bounding box;
+    // at most four cells, retaining the nearest intersection across all four.
+    s32 minX = (s32)floorf((fminf(orig[0], hit_pos[0]) + LEVEL_BOUNDARY_MAX) / CELL_SIZE);
+    s32 maxX = (s32)floorf((fmaxf(orig[0], hit_pos[0]) + LEVEL_BOUNDARY_MAX) / CELL_SIZE);
+    s32 minZ = (s32)floorf((fminf(orig[2], hit_pos[2]) + LEVEL_BOUNDARY_MAX) / CELL_SIZE);
+    s32 maxZ = (s32)floorf((fmaxf(orig[2], hit_pos[2]) + LEVEL_BOUNDARY_MAX) / CELL_SIZE);
+    minX = MAX(minX, 0);
+    maxX = MIN(maxX, NUM_CELLS - 1);
+    minZ = MAX(minZ, 0);
+    maxZ = MIN(maxZ, NUM_CELLS - 1);
+    Vec3f normalized;
+    vec3f_copy(normalized, dir);
+    vec3f_mul(normalized, 1.0f / length);
+    f32 nearest = length;
+    for (s32 z = minZ; z <= maxZ; z++) {
+        for (s32 x = minX; x <= maxX; x++) {
+            find_surface_on_ray_cell(x, z, orig, normalized, length,
+                                     hit_surface, hit_pos, &nearest);
+        }
+    }
+    smlua_call_event_hooks(HOOK_ON_FIND_SURFACE_ON_RAY, orig, dir, hit_surface, hit_pos);
+}
+
 void find_surface_on_ray(Vec3f orig, Vec3f dir, struct Surface **hit_surface, Vec3f hit_pos, f32 precision) {
     f32 max_length;
     s16 cellZ, cellX;

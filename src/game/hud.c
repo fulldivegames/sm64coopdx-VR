@@ -21,6 +21,8 @@
 #include "bettercamera.h"
 #include "mario_actions_automatic.h"
 #include "pc/configfile.h"
+#include "vr_speedrun.h"
+#include "pc/fs/fs.h"
 #include "pc/djui/djui_fps_display.h"
 #include "pc/vr/vr.h"
 #include "pc/network/network.h"
@@ -226,6 +228,8 @@ void render_dl_power_meter(s16 numHealthWedges) {
 
     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx++),
               G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+    gSPSaveState(gDisplayListHead++, G_STATE_GEOMETRY_MODE);
+    gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER | G_CULL_BOTH);
     gDPSetEnvColor(gDisplayListHead++, 0xFF, 0xFF, 0xFF,
                    get_hud_opacity_alpha(0xFF));
     gSPDisplayList(gDisplayListHead++, &dl_power_meter_base);
@@ -236,6 +240,7 @@ void render_dl_power_meter(s16 numHealthWedges) {
         gSPDisplayList(gDisplayListHead++, &dl_power_meter_health_segments_end);
     }
 
+    gSPLoadState(gDisplayListHead++, G_STATE_GEOMETRY_MODE);
     gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
 }
 
@@ -338,7 +343,8 @@ void handle_power_meter_actions(s16 numHealthWedges) {
  * And calls a power meter animation function depending of the value defined.
  */
 void render_hud_power_meter(void) {
-    s16 shownHealthWedges = gHudDisplay.wedges;
+    // Mods can use health ranges above the native eight-wedge texture LUT.
+    s16 shownHealthWedges = MIN(MAX(gHudDisplay.wedges, 0), 8);
 
     if (sPowerMeterHUD.animation != POWER_METER_HIDING) {
         handle_power_meter_actions(shownHealthWedges);
@@ -416,6 +422,14 @@ void render_hud_mario_lives(void) {
     gDPSetEnvColor(gDisplayListHead++, 0xFF, 0xFF, 0xFF,
                    get_hud_opacity_alpha(0xFF));
     render_hud_icon(NULL, gMarioState->character->hudHeadTexture.texture, G_IM_FMT_RGBA, G_IM_SIZ_16b, 16, 16, vr_hud_group_x(GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(22), anchorX), vr_hud_group_y(HUD_TOP_Y + 16, anchorY), 16, 16, 0, 0, 16, 16);
+    if (!(gMarioState->flags & (MARIO_CAP_ON_HEAD | MARIO_CAP_IN_HAND))) {
+        // The removable VR prop does not change ownership flags. Only actual
+        // cap loss gets the existing crossed-out-camera X over the hat area.
+        const u8 *const *cameraLut = segmented_to_virtual(main_hud_camera_lut);
+        render_hud_icon(NULL, cameraLut[3], G_IM_FMT_RGBA, G_IM_SIZ_16b, 16, 16,
+            vr_hud_group_x(GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(27), anchorX),
+            vr_hud_group_y(HUD_TOP_Y + 18, anchorY), 8, 8, 0, 0, 16, 16);
+    }
     print_text(vr_hud_group_x(GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(38), anchorX), vr_hud_group_y(HUD_TOP_Y, anchorY), "*"); // 'X' glyph
     print_text_fmt_int(vr_hud_group_x(GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(54), anchorX), vr_hud_group_y(HUD_TOP_Y, anchorY), "%d", gHudDisplay.lives);
 }
@@ -931,6 +945,75 @@ void render_hud_camera_status(void) {
  * Render HUD strings using hudDisplayFlags with it's render functions,
  * excluding the cannon reticle which detects a camera preset for it.
  */
+static void vr_speedrun_format_time(char* text, size_t size, double seconds) {
+    if (seconds < 0) { snprintf(text, size, "--:--.--"); return; }
+    const unsigned int cs = (unsigned int)fmin(seconds * 100.0, 35999999.0);
+    snprintf(text, size, "%02u:%02u:%02u.%02u", cs / 360000,
+        cs / 6000 % 60, cs / 100 % 60, cs % 100);
+}
+static void render_vr_speedrun(void) {
+    // Unlike queued native counters, this font draws immediately. Lua HUD
+    // callbacks and the power meter may leave clipping/culling state behind.
+    // Own the state of this pass instead of depending on which HUD ran first.
+    const u32 savedState = G_STATE_GEOMETRY_MODE | G_STATE_SCISSOR |
+        G_STATE_OTHER_MODE | G_STATE_COMBINE_MODE | G_STATE_ENV_COLOR |
+        G_STATE_TEXTURES;
+    gSPSaveState(gDisplayListHead++, savedState);
+    create_dl_vr_hud_matrix();
+    gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER | G_CULL_BOTH | G_LIGHTING |
+        G_FOG | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    vr_speedrun_initialize(fs_get_write_path("speedrun/setup.json"), configVrSpeedrunSegments);
+    const double elapsed = vr_speedrun_elapsed(vr_speedrun_now());
+    const unsigned int total = vr_speedrun_total(), completed = vr_speedrun_count();
+    const unsigned int revealed = configVrSpeedrunProgressive
+        ? MIN(total, completed + 1) : total;
+    const unsigned int rows = MIN(revealed, 16);
+    // Keep the complete ordinary (up to 16 split) run on screen, including
+    // completed times. Longer runs follow the current block; full history
+    // remains available in the Speedrunning menu.
+    // Progressive mode keeps completed splits and the current one, but never
+    // exposes future rows. Reset naturally returns to showing only split 1.
+    const unsigned int first = completed >= rows ? MIN(completed - rows + 1, revealed - rows) : 0;
+    char text[96], time[24];
+    vr_speedrun_format_time(time, sizeof(time), elapsed);
+    snprintf(text, sizeof(text), "%s  %u/%u%s", time, completed, total,
+        completed == total ? " Finished" : "");
+    const f32 scale = fminf(200.0f, fmaxf(50.0f, configVrSpeedrunScale)) / 100.0f;
+    const f32 y = 240 - MIN(configVrSpeedrunY, 210);
+    create_dl_translation_matrix(MENU_MTX_PUSH, (f32)MIN(configVrSpeedrunX, 600) - 160.0f, y, 0);
+    create_dl_scale_matrix(MENU_MTX_NOPUSH, scale, scale, 1);
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+    const u32 color = configVrSpeedrunColor;
+    gDPSetEnvColor(gDisplayListHead++, (color >> 16) & 255, (color >> 8) & 255,
+        color & 255, get_hud_opacity_alpha(255));
+    print_generic_ascii_string(0, 0, text);
+    create_dl_translation_matrix(MENU_MTX_PUSH, 0, -20, 0);
+    const f32 rowScale = fminf(.85f, fmaxf(.25f, (y / scale - 24) / (rows * 16)));
+    create_dl_scale_matrix(MENU_MTX_NOPUSH, rowScale, rowScale, 1);
+    for (unsigned int row = 0; row < rows; ++row) {
+        const unsigned int index = first + row;
+        snprintf(text, sizeof(text), "%c%u %s", index == completed ? '>' : ' ',
+            index + 1, vr_speedrun_segment_name(index));
+        const double actual = vr_speedrun_segment_time(index);
+        vr_speedrun_format_time(time, sizeof(time), actual >= 0 ? actual :
+            (index == completed ? elapsed : -1));
+        // Preserve the full saved name (up to 48 bytes). Fit long labels into
+        // the name column rather than cutting them off or covering the time.
+        const f32 nameWidth = get_generic_ascii_string_width(text);
+        const f32 nameScale = nameWidth > 178.0f ? 178.0f / nameWidth : 1.0f;
+        create_dl_translation_matrix(MENU_MTX_PUSH, 0, -(s16)row * 16, 0);
+        create_dl_scale_matrix(MENU_MTX_NOPUSH, nameScale, nameScale, 1);
+        print_generic_ascii_string(0, 0, text);
+        gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
+        print_generic_ascii_string(190, -(s16)row * 16, time);
+    }
+    gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
+    gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+    gSPPopMatrix(gDisplayListHead++, G_MTX_MODELVIEW);
+    gSPLoadState(gDisplayListHead++, savedState);
+}
+
 void render_hud(void) {
     s16 hudDisplayFlags;
 #ifdef VERSION_EU
@@ -952,6 +1035,7 @@ void render_hud(void) {
     // choice to hide the native game HUD. Keep the render pass alive for it.
     const bool vrFpsActive = vr_is_active() && configVrShowFps &&
         !gDjuiInMainMenu;
+    const bool vrTimerActive = vr_is_active() && configVrSpeedrunHud && !gDjuiInMainMenu;
 
     if (hudDisplayFlags == HUD_DISPLAY_NONE) {
         sPowerMeterHUD.animation = POWER_METER_HIDDEN;
@@ -963,7 +1047,7 @@ void render_hud(void) {
         !underwaterFilter &&
         crushedScreenAlpha == 0 &&
         !cannonHudActive &&
-        !vrFpsActive) {
+        !vrFpsActive && !vrTimerActive) {
         return;
     }
     {
@@ -1068,7 +1152,11 @@ void render_hud(void) {
             render_hud_timer();
         }
 
+        if (vrTimerActive) {
+            render_vr_speedrun();
+        }
         if (crushedScreenAlpha > 0) {
+            // Timer belongs to the game HUD; immersive blackout stays on top.
             render_vr_crushed_screen(crushedScreenAlpha);
         }
     }

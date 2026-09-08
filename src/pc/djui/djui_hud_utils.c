@@ -17,6 +17,7 @@
 #include "djui.h"
 #include "djui_unicode.h"
 #include "djui_hud_utils.h"
+#include "djui_hud_bounds.h"
 #include "djui_panel_pause.h"
 #include "game/camera.h"
 #include "game/hud.h"
@@ -48,6 +49,7 @@ struct HudUtilsState {
         InterpFieldF32 v;
     } textAlignment;
     bool applyVrGameHudStyle;
+    bool characterTheater;
 };
 
 static struct HudUtilsState sHudUtilsState = {
@@ -117,6 +119,10 @@ void djui_hud_set_vr_game_hud_style(bool enabled) {
     sHudUtilsState.applyVrGameHudStyle = enabled;
 }
 
+void djui_hud_set_character_theater(bool enabled) {
+    sHudUtilsState.characterTheater = enabled;
+}
+
 static inline u8 djui_hud_vr_alpha(u8 alpha) {
     return sHudUtilsState.applyVrGameHudStyle
         ? get_hud_opacity_alpha(alpha)
@@ -149,6 +155,12 @@ static void djui_hud_apply_vr_spread(f32 *x, f32 *y) {
 }
 
 static void djui_hud_position_translate(f32* x, f32* y) {
+    if (sHudUtilsState.characterTheater) {
+        // Both Lua resolutions describe the same 320x240 theater canvas.
+        // Save this flag with interpolated draws so repatching uses it too.
+        *y = SCREEN_HEIGHT - *y;
+        return;
+    }
     djui_hud_apply_vr_spread(x, y);
     if (sHudUtilsState.resolution == RESOLUTION_DJUI) {
         djui_gfx_position_translate(x, y);
@@ -159,6 +171,13 @@ static void djui_hud_position_translate(f32* x, f32* y) {
 }
 
 static void djui_hud_size_translate(f32* size) {
+    if (sHudUtilsState.characterTheater) return;
+    // Match position spread with the same linear scale. Lua HUDs assemble
+    // meters from separate texture halves: spreading only their origins
+    // opens a seam (or overlaps them below 100%) and misaligns the pie.
+    if (sHudUtilsState.applyVrGameHudStyle && vr_is_active()) {
+        *size *= (f32)clamp(configVrHudSpread, 80U, 200U) / 100.0f;
+    }
     if (sHudUtilsState.resolution == RESOLUTION_DJUI) {
         djui_gfx_size_translate(size);
     }
@@ -166,6 +185,10 @@ static void djui_hud_size_translate(f32* size) {
 
 // Translates position and scale to N64 resolution
 static void djui_hud_translate_positions(f32 *outX, f32 *outY, f32 *outW, f32 *outH) {
+    if (sHudUtilsState.characterTheater) {
+        *outY = -*outY;
+        return;
+    }
     // translate position
     djui_hud_position_translate(outX, outY);
     *outX -= GFX_DIMENSIONS_FROM_LEFT_EDGE(0);
@@ -317,6 +340,10 @@ void patch_djui_hud(f32 delta) {
 }
 
 static struct InterpHud *djui_hud_create_interp() {
+    // VR replays the same tick for both eyes. Resolve HUD animation while
+    // building its layout, preserving the font offsets and HUD transform;
+    // late camera patching must not independently rebuild those transforms.
+    if (vr_is_active()) return NULL;
     struct InterpHud *interp = (
         sInterpHudCount < sInterpHuds->count ?
         sInterpHuds->buffer[sInterpHudCount] :
@@ -468,6 +495,7 @@ void djui_hud_set_text_alignment_interpolated(f32 prevTextHAlign, f32 prevTextVA
 }
 
 u32 djui_hud_get_screen_width(void) {
+    if (sHudUtilsState.characterTheater) return SCREEN_WIDTH;
     u32 windowWidth, windowHeight;
     gfx_get_dimensions(&windowWidth, &windowHeight);
 
@@ -477,6 +505,7 @@ u32 djui_hud_get_screen_width(void) {
 }
 
 u32 djui_hud_get_screen_height(void) {
+    if (sHudUtilsState.characterTheater) return SCREEN_HEIGHT;
     u32 windowWidth, windowHeight;
     gfx_get_dimensions(&windowWidth, &windowHeight);
 
@@ -537,17 +566,22 @@ void djui_hud_set_viewport(f32 x, f32 y, f32 width, f32 height) {
     djui_hud_translate_positions(&translatedX, &translatedY, &translatedW, &translatedH);
 
     // convert to viewport structure
-    static Vp vp = {{
+    const Vp initial = {{
         { 640, 480, 511, 0 },
         { 640, 480, 511, 0 },
     }};
-    Vp_t *viewport = &vp.vp;
+    // Display lists are replayed later for both eyes. Each command must own
+    // its viewport, not reference a static object overwritten by the next mod.
+    Vp *vp = alloc_display_list(sizeof(Vp));
+    if (vp == NULL) return;
+    *vp = initial;
+    Vp_t *viewport = &vp->vp;
     viewport->vscale[0] = translatedW * 2.0f;
     viewport->vscale[1] = translatedH * 2.0f;
     viewport->vtrans[0] = (translatedW + translatedX) * 2.0f;
     viewport->vtrans[1] = (translatedH + translatedY) * 2.0f;
 
-    gSPViewport(gDisplayListHead++, &vp);
+    gSPViewport(gDisplayListHead++, vp);
 }
 
 void djui_hud_reset_viewport(void) {
@@ -556,6 +590,13 @@ void djui_hud_reset_viewport(void) {
 }
 
 void djui_hud_set_scissor(f32 x, f32 y, f32 width, f32 height) {
+    if (sHudUtilsState.characterTheater) {
+        gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE,
+            fmaxf(0, fminf(SCREEN_WIDTH, x)), fmaxf(0, fminf(SCREEN_HEIGHT, y)),
+            fmaxf(0, fminf(SCREEN_WIDTH, x + width)),
+            fmaxf(0, fminf(SCREEN_HEIGHT, y + height)));
+        return;
+    }
     // translate position and scale
     f32 translatedX = x, translatedY = y, translatedW = width, translatedH = height;
     djui_hud_translate_positions(&translatedX, &translatedY, &translatedW, &translatedH);
@@ -803,7 +844,19 @@ static inline bool is_power_of_two(u32 n) {
     return (n > 0) && ((n & (n - 1)) == 0);
 }
 
+static bool djui_hud_texture_outside(f32 x, f32 y, f32 width, f32 height) {
+    // Only mod game HUDs, not theater menus or world-space nametags.
+    // Rotated quads could rotate into view, so conservatively retain them.
+    return sHudUtilsState.applyVrGameHudStyle && vr_is_active() &&
+        !sHudUtilsState.characterTheater &&
+        sHudUtilsState.rotation.degrees.prev == 0 &&
+        sHudUtilsState.rotation.degrees.curr == 0 &&
+        djui_hud_rect_outside(x, y, width, height,
+            djui_hud_get_screen_width(), djui_hud_get_screen_height());
+}
+
 static void djui_hud_render_texture_raw(const Texture* texture, u32 width, u32 height, u8 fmt, u8 siz, f32 x, f32 y, f32 scaleW, f32 scaleH, struct InterpHud *interp) {
+    if (djui_hud_texture_outside(x, y, width * scaleW, height * scaleH)) return;
     if (!is_power_of_two(width) || !is_power_of_two(height)) {
         LOG_LUA_LINE("Tried to render DJUI HUD texture with NPOT width or height");
         return;
@@ -851,6 +904,7 @@ static void djui_hud_render_texture_tile_raw(const Texture* texture, u32 width, 
     gDjuiHudUtilsZ += 0.001f;
     if (width != 0) { scaleW *= (f32) tileW / (f32) width; }
     if (height != 0) { scaleH *= (f32) tileH / (f32) height; }
+    if (djui_hud_texture_outside(x, y, width * scaleW, height * scaleH)) return;
 
     // translate position
     djui_hud_create_interp_gfx(interp, INTERP_HUD_TRANSLATION);
@@ -897,6 +951,10 @@ void djui_hud_render_texture_tile(struct TextureInfo* texInfo, f32 x, f32 y, f32
 
 void djui_hud_render_texture_interpolated(struct TextureInfo* texInfo, f32 prevX, f32 prevY, f32 prevScaleW, f32 prevScaleH, f32 x, f32 y, f32 scaleW, f32 scaleH) {
     if (!texInfo) { return; }
+    if (vr_is_active()) {
+        djui_hud_render_texture(texInfo, x, y, scaleW, scaleH);
+        return;
+    }
 
     struct InterpHud *interp = djui_hud_create_interp();
     if (interp) {
@@ -917,6 +975,10 @@ void djui_hud_render_texture_interpolated(struct TextureInfo* texInfo, f32 prevX
 
 void djui_hud_render_texture_tile_interpolated(struct TextureInfo* texInfo, f32 prevX, f32 prevY, f32 prevScaleW, f32 prevScaleH, f32 x, f32 y, f32 scaleW, f32 scaleH, u32 tileX, u32 tileY, u32 tileW, u32 tileH) {
     if (!texInfo) { return; }
+    if (vr_is_active()) {
+        djui_hud_render_texture_tile(texInfo, x, y, scaleW, scaleH, tileX, tileY, tileW, tileH);
+        return;
+    }
 
     // apply scale correction for tiles
     if (texInfo->width != 0) {
@@ -985,6 +1047,10 @@ void djui_hud_render_rect(f32 x, f32 y, f32 width, f32 height) {
 }
 
 void djui_hud_render_rect_interpolated(f32 prevX, f32 prevY, f32 prevWidth, f32 prevHeight, f32 x, f32 y, f32 width, f32 height) {
+    if (vr_is_active()) {
+        djui_hud_render_rect(x, y, width, height);
+        return;
+    }
     struct InterpHud *interp = djui_hud_create_interp();
     if (interp) {
         interp->posX.prev = prevX;

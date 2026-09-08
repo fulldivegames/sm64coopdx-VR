@@ -390,6 +390,29 @@ public final class QuestNativeActivity extends NativeActivity {
         runOnUiThread(this::toggleSpeechRecognition);
     }
 
+    public void stopSpeechRecognitionFromNative() {
+        runOnUiThread(() -> {
+            if (!speechListening || speechRecognizer == null) return;
+            try {
+                // Keep the native session alive until onResults/onError.
+                speechRecognizer.stopListening();
+            } catch (RuntimeException exception) {
+                speechListening = false;
+                nativeOnSpeechRecognitionState(false);
+                Log.e(TAG, "Could not finish dictation", exception);
+            }
+        });
+    }
+
+    public void cancelSpeechRecognitionFromNative() {
+        runOnUiThread(() -> {
+            speechStartPendingAfterModelDownload = false;
+            speechListening = false;
+            if (speechRecognizer != null) speechRecognizer.cancel();
+            nativeOnSpeechRecognitionState(false);
+        });
+    }
+
     private void toggleSpeechRecognition() {
         if (speechListening && speechRecognizer != null) {
             speechRecognizer.cancel();
@@ -444,6 +467,7 @@ public final class QuestNativeActivity extends NativeActivity {
                     }
                 }
                 @Override public void onResults(Bundle results) {
+                    if (!speechListening) return; // A cancelled keyboard must not receive late text.
                     speechListening = false;
                     ArrayList<String> matches = results.getStringArrayList(
                             SpeechRecognizer.RESULTS_RECOGNITION);
@@ -719,15 +743,9 @@ public final class QuestNativeActivity extends NativeActivity {
             Log.i(TAG, "Release notes installed.");
             copyMissingAssetDirectory("palettes", new File(root, "palettes"));
             Log.i(TAG, "Bundled character palettes installed.");
-            // Remove obsolete synchronized/session manifests. Native Fire
-            // Flowers are deliberately not advertised to public clients.
-            for (String obsoleteMod :
-                    new String[] { "Fire Flowers", "vr-special-moves" }) {
-                deleteBundledDirectory(
-                        new File(SHARED_MOD_DIRECTORY, obsoleteMod));
-                deleteBundledDirectory(
-                        new File(root, "mods/" + obsoleteMod));
-            }
+            // Mod directories belong to the player, even when their names
+            // match an obsolete bundled mod. Never delete them on startup
+            // or update: names alone do not establish asset ownership.
             copyMissingAssetDirectory("mods", new File(root, "mods"));
             Log.i(TAG, "Bundled session mods installed.");
             copyAssetDirectory("sonic_shoes", new File(root, "sonic_shoes"));
@@ -736,19 +754,6 @@ public final class QuestNativeActivity extends NativeActivity {
             Log.i(TAG, "Bundled normal maps installed.");
         } catch (IOException exception) {
             Log.e(TAG, "Could not install bundled resources.", exception);
-        }
-    }
-
-    private void deleteBundledDirectory(File file) throws IOException {
-        if (!file.exists()) return;
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) {
-                for (File child : children) deleteBundledDirectory(child);
-            }
-        }
-        if (!file.delete()) {
-            throw new IOException("Could not remove obsolete bundled resource " + file);
         }
     }
 

@@ -12,10 +12,13 @@
 
 #ifdef __ANDROID__
 extern bool quest_speech_recognition_start(void);
+extern void quest_speech_recognition_stop(void);
+extern void quest_speech_recognition_cancel(void);
 extern bool quest_speech_recognition_poll(char* text, size_t textSize);
 extern bool quest_speech_recognition_is_listening(void);
 #elif defined(_WIN32)
 #include "pc/pc_speech_input.h"
+#include "djui_popup.h"
 #endif
 
 #define DJUI_INPUTBOX_YOFF (-3)
@@ -133,25 +136,32 @@ static u8 sKeyboardHeldActionFrames;
 static bool sKeyboardShift;
 static bool sKeyboardCaps;
 static bool sKeyboardDictationActive;
+static bool sKeyboardDictationFinishing;
 
 static void djui_keyboard_dictation_finish(bool cancel) {
     if (!sKeyboardDictationActive) return;
 #ifdef __ANDROID__
-    if (cancel && quest_speech_recognition_is_listening()) {
-        quest_speech_recognition_start();
-    }
+    if (cancel) quest_speech_recognition_cancel();
 #elif defined(_WIN32)
     if (cancel) pc_speech_recognition_cancel();
 #else
     (void)cancel;
 #endif
     sKeyboardDictationActive = false;
+    sKeyboardDictationFinishing = false;
     voice_chat_set_capture_paused(false);
 }
 
 static void djui_keyboard_dictation_start(void) {
     if (sKeyboardDictationActive) {
-        djui_keyboard_dictation_finish(true);
+        if (!sKeyboardDictationFinishing) {
+#ifdef __ANDROID__
+            quest_speech_recognition_stop();
+#elif defined(_WIN32)
+            pc_speech_recognition_stop();
+#endif
+            sKeyboardDictationFinishing = true;
+        }
         return;
     }
     voice_chat_set_capture_paused(true);
@@ -163,6 +173,12 @@ static void djui_keyboard_dictation_start(void) {
     sKeyboardDictationActive = false;
 #endif
     if (!sKeyboardDictationActive) voice_chat_set_capture_paused(false);
+#if defined(_WIN32) && !defined(__ANDROID__)
+    if (!sKeyboardDictationActive) {
+        char error[256];
+        if (pc_speech_recognition_error(error, sizeof(error))) djui_popup_create(error, 3);
+    }
+#endif
 }
 
 static const struct DjuiKeyboardKey* djui_keyboard_selected_key(void) {
@@ -307,11 +323,13 @@ void djui_inputbox_onscreen_keyboard_update(OSContPad* pad, u16 pressed) {
         char speechText[512] = { 0 };
         bool ready = false;
 #ifdef __ANDROID__
-        ready = quest_speech_recognition_poll(speechText, sizeof(speechText));
         const bool listening = quest_speech_recognition_is_listening();
+        ready = quest_speech_recognition_poll(speechText, sizeof(speechText));
 #elif defined(_WIN32)
-        ready = pc_speech_recognition_poll(speechText, sizeof(speechText));
         const bool listening = pc_speech_recognition_is_listening();
+        // Read completion before consuming the result so a worker finishing
+        // between these reads cannot cause us to discard its final phrase.
+        ready = pc_speech_recognition_poll(speechText, sizeof(speechText));
 #else
         const bool listening = false;
 #endif
@@ -319,6 +337,10 @@ void djui_inputbox_onscreen_keyboard_update(OSContPad* pad, u16 pressed) {
             djui_interactable_on_text_input(speechText);
             djui_keyboard_dictation_finish(false);
         } else if (!listening) {
+#if defined(_WIN32) && !defined(__ANDROID__)
+            char error[256];
+            if (pc_speech_recognition_error(error, sizeof(error))) djui_popup_create(error, 3);
+#endif
             djui_keyboard_dictation_finish(false);
         }
     }
@@ -474,7 +496,7 @@ void djui_inputbox_onscreen_keyboard_render(void) {
 
     djui_hud_set_color(154, 177, 204, 255);
     const char* helpText = sKeyboardDictationActive
-        ? "Listening... speak now   B: Cancel"
+        ? (sKeyboardDictationFinishing ? "Transcribing...   B: Cancel" : "Listening... speak now   B: Cancel")
         : "Stick/D-pad: Select   A: Type   B: Cancel";
     djui_hud_print_text(helpText,
                         panelX + 16.0f, panelY + panelHeight - 16.0f,

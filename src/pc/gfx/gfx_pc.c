@@ -1,4 +1,5 @@
 #include <math.h>
+#include "gfx_ui_scissor.h"
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -39,6 +40,7 @@
 
 #include "pc/gfx/gfx_cc.h"
 #include "pc/gfx/gfx_pc.h"
+#include "gfx_ui_quad_clip.h"
 #include "pc/gfx/gfx_rendering_api.h"
 #include "pc/gfx/gfx_screen_config.h"
 #include "pc/gfx/gfx_window_manager_api.h"
@@ -260,6 +262,7 @@ UNUSED static const uint8_t missing_texture[MISSING_W * MISSING_H * 4] = {
 };
 
 static bool sOnlyTextureChangeOnAddrChange = false;
+static bool sMenuTargetActive = false;
 static void gfx_update_loaded_texture(uint8_t tile_number, uint32_t size_bytes, const uint8_t* addr) {
     if (tile_number >= MAX_TILES) { return; }
     tile_number = rdp.texture_tile[tile_number].index;
@@ -909,6 +912,7 @@ static void OPTIMIZE_O3 gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
             memcpy(sInverseCameraMatrix, addr, sizeof(sInverseCameraMatrix));
             sHasInverseCameraMatrix = true;
             sLocalToWorldMatrixValid = false;
+            rsp.lights_changed = true;
         }
         return;
     }
@@ -963,6 +967,9 @@ static void gfx_sp_pop_matrix(uint32_t count) {
 }
 
 static float gfx_adjust_x_for_aspect_ratio(float x) {
+    // The captured 4:3 canvas is fitted to the theater quad at composition.
+    // Applying the headset eye aspect here crops its right-hand column.
+    if (sMenuTargetActive) return x;
     float adjusted = x * gfx_current_dimensions.x_adjust_ratio;
 
     // Force 2D coordinates to be aligned perfectly on the nearest pixel
@@ -1921,6 +1928,29 @@ static void gfx_dp_set_scissor(UNUSED uint32_t mode, uint32_t ulx, uint32_t uly,
     float y = (SCREEN_HEIGHT - lry / 4.0f) * RATIO_Y;
     float width = (lrx - ulx) / 4.0f * RATIO_X;
     float height = (lry - uly) / 4.0f * RATIO_Y;
+
+    // Lua menu scissoring is in logical HUD space, not the eye framebuffer.
+    // Full-screen resets retain the eye framebuffer bounds outside theater.
+    const bool fullScreen = ulx == 0 && uly <= BORDER_HEIGHT * 4 &&
+        lrx >= SCREEN_WIDTH * 4 && lry >= (SCREEN_HEIGHT - BORDER_HEIGHT) * 4;
+    if (!sMenuTargetActive && sStereoEye < 2 && !sOnlyTextureChangeOnAddrChange &&
+        gfx_ui_scissor_tracks_canvas(rsp.P_matrix, fullScreen)) {
+        float bounds[4];
+        if (gfx_ui_project_scissor(rsp.P_matrix,
+                ulx / 4.0f, SCREEN_HEIGHT - lry / 4.0f,
+                lrx / 4.0f, SCREEN_HEIGHT - uly / 4.0f, bounds)) {
+            const float x0 = fmaxf(-1.0f, fminf(1.0f, bounds[0]));
+            const float y0 = fmaxf(-1.0f, fminf(1.0f, bounds[1]));
+            const float x1 = fmaxf(-1.0f, fminf(1.0f, bounds[2]));
+            const float y1 = fmaxf(-1.0f, fminf(1.0f, bounds[3]));
+            x = floorf(rdp.viewport.x + (x0 + 1.0f) * 0.5f * rdp.viewport.width);
+            y = floorf(rdp.viewport.y + (y0 + 1.0f) * 0.5f * rdp.viewport.height);
+            width = ceilf(rdp.viewport.x + (x1 + 1.0f) * 0.5f * rdp.viewport.width) - x;
+            height = ceilf(rdp.viewport.y + (y1 + 1.0f) * 0.5f * rdp.viewport.height) - y;
+        } else {
+            x = y = width = height = 0.0f;
+        }
+    }
 
     rdp.scissor.x = x;
     rdp.scissor.y = y;
@@ -2923,60 +2953,8 @@ static void OPTIMIZE_O3 djui_gfx_dp_execute_clipping(void) {
     if (!sDjuiClip) { return; }
     sDjuiClip = false;
 
-    size_t start_index = 0;
-    size_t dest_index = 4;
-
-    float minX = rsp.loaded_vertices[start_index].x;
-    float maxX = rsp.loaded_vertices[start_index].x;
-    float minY = rsp.loaded_vertices[start_index].y;
-    float maxY = rsp.loaded_vertices[start_index].y;
-
-    float minU = rsp.loaded_vertices[start_index].u;
-    float maxU = rsp.loaded_vertices[start_index].u;
-    float minV = rsp.loaded_vertices[start_index].v;
-    float maxV = rsp.loaded_vertices[start_index].v;
-
-    for (size_t i = start_index; i < dest_index; i++) {
-        struct GfxVertex* d = &rsp.loaded_vertices[i];
-        minX = fmin(minX, d->x);
-        maxX = fmax(maxX, d->x);
-        minY = fmin(minY, d->y);
-        maxY = fmax(maxY, d->y);
-
-        minU = fmin(minU, d->u);
-        maxU = fmax(maxU, d->u);
-        minV = fmin(minV, d->v);
-        maxV = fmax(maxV, d->v);
-    }
-
-    float midY = (minY + maxY) / 2.0f;
-    float midX = (minX + maxX) / 2.0f;
-    float midU = (minU + maxU) / 2.0f;
-    float midV = (minV + maxV) / 2.0f;
-    for (size_t i = start_index; i < dest_index; i++) {
-        struct GfxVertex* d = &rsp.loaded_vertices[i];
-        if (d->x <= midX) {
-            d->x += (maxX - minX) * (sDjuiClipX1 / 255.0f);
-        } else {
-            d->x -= (maxX - minX) * (sDjuiClipX2 / 255.0f);
-        }
-        if (d->y <= midY) {
-            d->y += (maxY - minY) * (sDjuiClipY2 / 255.0f);
-        } else {
-            d->y -= (maxY - minY) * (sDjuiClipY1 / 255.0f);
-        }
-
-        if (d->u <= midU) {
-            d->u += (maxU - minU) * (sDjuiClipX1 / 255.0f);
-        } else {
-            d->u -= (maxU - minU) * (sDjuiClipX2 / 255.0f);
-        }
-        if (d->v <= midV) {
-            d->v += (maxV - minV) * (sDjuiClipY1 / 255.0f);
-        } else {
-            d->v -= (maxV - minV) * (sDjuiClipY2 / 255.0f);
-        }
-    }
+    gfx_ui_clip_quad(rsp.loaded_vertices, sDjuiClipX1 / 255.0f,
+        sDjuiClipY1 / 255.0f, sDjuiClipX2 / 255.0f, sDjuiClipY2 / 255.0f);
 }
 
 static void OPTIMIZE_O3 djui_gfx_dp_execute_override(void) {
@@ -3259,6 +3237,20 @@ void gfx_pc_precomp_shader(uint32_t rgb1, uint32_t alpha1, uint32_t rgb2, uint32
 void OPTIMIZE_O3 ext_gfx_run_dl(Gfx* cmd) {
     uint32_t opcode = cmd->words.w0 >> 24;
     switch (opcode) {
+        case G_MENU_TARGET_EXT:
+            gfx_flush();
+            if (C0(0, 2) == 2) {
+                if (gfx_rapi->cell_shaded) gfx_rapi->cell_shaded();
+            } else if (C0(0, 1)) {
+                sMenuTargetActive = true;
+                if (gfx_rapi->begin_menu_target) gfx_rapi->begin_menu_target();
+            } else {
+                if (gfx_rapi->end_menu_target) {
+                    gfx_rapi->end_menu_target((const float *)seg_addr(cmd->words.w1));
+                }
+                sMenuTargetActive = false;
+            }
+            break;
         case G_TEXCLIP_DJUI:
             djui_gfx_dp_set_clipping(C0(16, 8), C0(8, 8), C1(16, 8), C1(8, 8));
             break;

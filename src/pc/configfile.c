@@ -99,7 +99,7 @@ static unsigned int sConfigVrCameraHeightVersion  = 9;
 unsigned int configVrMovementCalibration          = 50;
 unsigned int configVrFacingSource                 = VR_FACING_SOURCE_HEADSET;
 unsigned int configVrFov                          = 100;
-unsigned int configVrBrightness                   = 100;
+unsigned int configVrBrightness                   = VR_BRIGHTNESS_DEFAULT;
 unsigned int configVrSaturation                   = 112;
 unsigned int configVrContrast                     = 115;
 #ifdef __ANDROID__
@@ -114,6 +114,7 @@ unsigned int configVrQuestRefreshRate              = 2;
 bool         configVrSpecialMovesEnabled           = true;
 bool         configVrSpecialFireFlower             = true;
 bool         configVrSpecialFireFlowerMusic       = true;
+bool         configVrAlternatePowerUpMusic        = false;
 bool         configVrSpecialHammerSuit              = true;
 bool         configVrSpecialSonicShoes              = true;
 unsigned int configVrSonicShoesSpeed                = VR_SONIC_SHOES_SPEED_DEFAULT;
@@ -130,7 +131,7 @@ bool         configVrDisableFog                   = true;
 bool         configVrDesktopMirror                = true;
 unsigned int configVrDesktopMirrorFps             = 60;
 unsigned int configVrHudOpacity                   = 100;
-unsigned int configVrHudSpread                    = 120;
+unsigned int configVrHudSpread                    = 100;
 unsigned int configVrMenuAnchor                   = VR_UI_ANCHOR_HEADSET;
 unsigned int configVrHudAnchor                    = VR_UI_ANCHOR_HEADSET;
 unsigned int configVrColorFilter                  = VR_COLOR_FILTER_NONE;
@@ -147,6 +148,14 @@ unsigned int configVrLBinding                     = VR_CONTROLLER_BINDING_LEFT_S
 unsigned int configVrRBinding                     = VR_CONTROLLER_BINDING_RIGHT_STICK_CLICK;
 unsigned int configVrPauseBinding                 = VR_CONTROLLER_BINDING_LEFT_STICK_CLICK;
 unsigned int configVrSpecialBinding               = VR_CONTROLLER_BINDING_LEFT_SECONDARY;
+unsigned int configVrSplitBinding                 = VR_CONTROLLER_BINDING_DISABLED;
+bool configVrSpeedrunHud                          = false;
+bool configVrSpeedrunProgressive                  = false;
+unsigned int configVrSpeedrunColor                = 0xFFE820;
+unsigned int configVrSpeedrunScale                = 100;
+unsigned int configVrSpeedrunX                    = 180;
+unsigned int configVrSpeedrunY                    = 20;
+unsigned int configVrSpeedrunSegments             = 1;
 bool         configVrPhysicalPunching             = true;
 bool         configVrPhysicalGrabbing             = true;
 bool         configVrPhysicalClimbing             = true;
@@ -175,6 +184,7 @@ bool         configVrImmersiveStarSpawnFocus       = false;
 bool         configVrImmersiveGhostPunchArm        = true;
 bool         configVrImmersiveMatchMarioHeight     = false;
 bool         configVrImmersiveFlipBillboards       = false;
+bool         configVrCrossedTreeBillboards         = true;
 bool         configVrMovementOverhaul             = false;
 bool         configVrMarioPunchSound              = true;
 bool         configVrMotionControlledDive         = true;
@@ -491,6 +501,7 @@ static const struct ConfigOption options[] = {
     {.name = "vr_special_moves_enabled",        .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialMovesEnabled},
     {.name = "vr_special_fire_flower",          .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialFireFlower},
     {.name = "vr_power_up_music",               .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialFireFlowerMusic},
+    {.name = "vr_alternate_power_up_music",     .type = CONFIG_TYPE_BOOL, .boolValue = &configVrAlternatePowerUpMusic},
     {.name = "vr_special_hammer_suit",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialHammerSuit},
     {.name = "vr_special_sonic_shoes",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialSonicShoes},
     {.name = "vr_sonic_shoes_speed_v3",          .type = CONFIG_TYPE_UINT, .uintValue = &configVrSonicShoesSpeed},
@@ -523,6 +534,14 @@ static const struct ConfigOption options[] = {
     {.name = "vr_r_binding",                   .type = CONFIG_TYPE_UINT, .uintValue = &configVrRBinding},
     {.name = "vr_pause_binding",               .type = CONFIG_TYPE_UINT, .uintValue = &configVrPauseBinding},
     {.name = "vr_special_binding",             .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpecialBinding},
+    {.name = "vr_split_binding",               .type = CONFIG_TYPE_UINT, .uintValue = &configVrSplitBinding},
+    {.name = "vr_speedrun_hud",                .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpeedrunHud},
+    {.name = "vr_speedrun_progressive",        .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpeedrunProgressive},
+    {.name = "vr_speedrun_color",              .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpeedrunColor},
+    {.name = "vr_speedrun_scale",              .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpeedrunScale},
+    {.name = "vr_speedrun_x_extended",         .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpeedrunX},
+    {.name = "vr_speedrun_y",                  .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpeedrunY},
+    {.name = "vr_speedrun_segments",           .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpeedrunSegments},
     {.name = "vr_physical_punching",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPhysicalPunching},
     {.name = "vr_physical_grabbing",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPhysicalGrabbing},
     {.name = "vr_physical_climbing",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPhysicalClimbing},
@@ -551,6 +570,7 @@ static const struct ConfigOption options[] = {
     {.name = "vr_immersive_ghost_punch_arm",     .type = CONFIG_TYPE_BOOL, .boolValue = &configVrImmersiveGhostPunchArm},
     {.name = "vr_immersive_match_mario_height",  .type = CONFIG_TYPE_BOOL, .boolValue = &configVrImmersiveMatchMarioHeight},
     {.name = "vr_immersive_flip_billboards",     .type = CONFIG_TYPE_BOOL, .boolValue = &configVrImmersiveFlipBillboards},
+    {.name = "vr_crossed_tree_billboards",         .type = CONFIG_TYPE_BOOL, .boolValue = &configVrCrossedTreeBillboards},
     {.name = "vr_mario_punch_sound",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrMarioPunchSound},
     {.name = "vr_motion_controlled_dive",       .type = CONFIG_TYPE_BOOL, .boolValue = &configVrMotionControlledDive},
     {.name = "vr_motion_controlled_ground_dive",.type = CONFIG_TYPE_BOOL, .boolValue = &configVrMotionControlledGroundDive},

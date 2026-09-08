@@ -26,6 +26,17 @@
 #define VR_GL_RGBA8 0x8058
 #define VR_GL_SRGB8_ALPHA8 0x8C43
 
+static GLboolean sPreviousEyeSrgbEnabled;
+static double sFrameWorkStartMs, sFrameWaitMs, sFrameBudgetMs, sLastSlowFrameLogMs;
+
+static double vr_frame_clock_ms(void) {
+    static LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart * 1000.0 / (double)frequency.QuadPart;
+}
+
 struct VrOpenXrFunctions {
     PFN_xrGetInstanceProcAddr xrGetInstanceProcAddr;
     PFN_xrEnumerateInstanceExtensionProperties xrEnumerateInstanceExtensionProperties;
@@ -3557,6 +3568,15 @@ bool vr_openxr_begin_eye(
     swapchain->framebufferValidated[imageIndex] = true;
 
     sEyeDirectImageIndices[eyeIndex] = imageIndex;
+    // GLES performs sRGB attachment conversion automatically. Desktop GL
+    // requires this explicit enable; otherwise the compositor decodes
+    // unencoded colors and PC VR looks darker than the standalone renderer.
+    sPreviousEyeSrgbEnabled = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+    if (sColorSwapchainFormat == VR_GL_SRGB8_ALPHA8) {
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    } else {
+        glDisable(GL_FRAMEBUFFER_SRGB);
+    }
     sActiveRenderEye = (int32_t)eyeIndex;
     *width = renderWidth;
     *height = renderHeight;
@@ -3642,6 +3662,11 @@ bool vr_openxr_end_eye(uint32_t eyeIndex) {
     glReadBuffer((GLenum)sPreviousReadBuffer);
 
     sActiveRenderEye = -1;
+    if (sPreviousEyeSrgbEnabled) {
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    } else {
+        glDisable(GL_FRAMEBUFFER_SRGB);
+    }
     sActiveEyeUsesScaledTarget = false;
 
     if (!vr_openxr_release_eye_image(eyeIndex)) {
@@ -3689,24 +3714,36 @@ bool vr_openxr_mirror_eye(
         (float)sourceWidth / (float)sourceHeight;
     const float destinationAspect =
         (float)width / (float)height;
-    GLint destinationX = 0;
-    GLint destinationY = 0;
-    GLint destinationWidth = (GLint)width;
-    GLint destinationHeight = (GLint)height;
+    GLint sourceX = 0;
+    GLint sourceY = 0;
+    GLint cropWidth = sourceWidth;
+    GLint cropHeight = sourceHeight;
 
-    // Fit the complete eye image without stretching or cropping. A headset
-    // eye is much taller than a normal desktop window, so this normally adds
-    // black pillar-box bars instead of cutting off the top and bottom.
+    // Quest-style mono capture: fill the desktop with a centered crop of
+    // one eye, retaining its aspect ratio. Combining both eyes would produce
+    // double images, and rendering a third view adds unnecessary GPU work.
     if (sourceAspect > destinationAspect) {
-        destinationHeight =
-            (GLint)((float)width / sourceAspect);
-        destinationY =
-            ((GLint)height - destinationHeight) / 2;
+        cropWidth = (GLint)((float)sourceHeight * destinationAspect);
+        if (cropWidth < 1) cropWidth = 1;
+        sourceX = (sourceWidth - cropWidth) / 2;
     } else {
-        destinationWidth =
-            (GLint)((float)height * sourceAspect);
-        destinationX =
-            ((GLint)width - destinationWidth) / 2;
+        cropHeight = (GLint)((float)sourceWidth / destinationAspect);
+        if (cropHeight < 1) cropHeight = 1;
+        sourceY = (sourceHeight - cropHeight) / 2;
+    }
+
+    // OpenXR eye projections are often asymmetric. Zero-angle forward is
+    // not necessarily the texture midpoint. Center the crop on that optical
+    // axis while keeping every source pixel inside the existing eye image.
+    const XrFovf fov = sViews[eyeIndex].fov;
+    const float left = tanf(fov.angleLeft), right = tanf(fov.angleRight);
+    const float down = tanf(fov.angleDown), up = tanf(fov.angleUp);
+    if (isfinite(left) && isfinite(right) && right > left &&
+        isfinite(down) && isfinite(up) && up > down) {
+        sourceX = (GLint)((-left / (right - left)) * sourceWidth - cropWidth * 0.5f);
+        sourceY = (GLint)((-down / (up - down)) * sourceHeight - cropHeight * 0.5f);
+        sourceX = sourceX < 0 ? 0 : sourceX > sourceWidth - cropWidth ? sourceWidth - cropWidth : sourceX;
+        sourceY = sourceY < 0 ? 0 : sourceY > sourceHeight - cropHeight ? sourceHeight - cropHeight : sourceY;
     }
 
     glDisable(GL_SCISSOR_TEST);
@@ -3730,14 +3767,14 @@ bool vr_openxr_mirror_eye(
     };
     glClearBufferfv(GL_COLOR, 0, mirrorClearColor);
     glBlitFramebuffer(
+        sourceX,
+        sourceY,
+        sourceX + cropWidth,
+        sourceY + cropHeight,
         0,
         0,
-        sourceWidth,
-        sourceHeight,
-        destinationX,
-        destinationY,
-        destinationX + destinationWidth,
-        destinationY + destinationHeight,
+        (GLint)width,
+        (GLint)height,
         GL_COLOR_BUFFER_BIT,
         GL_LINEAR
     );
@@ -3762,8 +3799,8 @@ bool vr_openxr_mirror_eye(
 
     if (!sDesktopMirrorLogged) {
         printf(
-            "[VR] Desktop mirror is displaying the complete "
-            "left OpenXR eye.\n"
+            "[VR] Desktop mirror is displaying a centered, aspect-correct "
+            "crop of the left OpenXR eye.\n"
         );
         sDesktopMirrorLogged = true;
     }
@@ -3841,8 +3878,12 @@ bool vr_openxr_begin_frame(void) {
     XrFrameState frameState = { 0 };
     frameState.type = XR_TYPE_FRAME_STATE;
 
+    const double waitStartMs = vr_frame_clock_ms();
     XrResult result =
         sXr.xrWaitFrame(sSession, &waitInfo, &frameState);
+    sFrameWorkStartMs = vr_frame_clock_ms();
+    sFrameWaitMs = sFrameWorkStartMs - waitStartMs;
+    sFrameBudgetMs = (double)frameState.predictedDisplayPeriod / 1000000.0;
 
     if (XR_FAILED(result)) {
         printf(
@@ -4031,7 +4072,18 @@ bool vr_openxr_end_frame(void) {
     endInfo.layerCount = layerCount;
     endInfo.layers = layerCount > 0 ? layers : NULL;
 
+    const double submitStartMs = vr_frame_clock_ms();
     XrResult result = sXr.xrEndFrame(sSession, &endInfo);
+    const double submitEndMs = vr_frame_clock_ms();
+    const double workMs = submitStartMs - sFrameWorkStartMs;
+    const double submitMs = submitEndMs - submitStartMs;
+    if (sFrameBudgetMs > 0 && layerCount > 0 &&
+        (workMs > sFrameBudgetMs * 1.5 || sFrameWaitMs > sFrameBudgetMs * 2 ||
+         submitMs > sFrameBudgetMs) && submitEndMs - sLastSlowFrameLogMs > 1000) {
+        printf("[VR timing] wait=%.2f work=%.2f submit=%.2f budget=%.2f ms\n",
+               sFrameWaitMs, workMs, submitMs, sFrameBudgetMs);
+        sLastSlowFrameLogMs = submitEndMs;
+    }
 
     sFrameBegun = false;
     sFrameDisplayTime = 0;

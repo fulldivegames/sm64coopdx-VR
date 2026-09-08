@@ -1,4 +1,6 @@
 // treasure_chest.c.inc
+#include "pc/vr/vr.h"
+#include "game/rendering_graph_node.h"
 
 /**
  * Hitbox for treasure chest bottom.
@@ -82,10 +84,25 @@ void bhv_treasure_chest_bottom_loop(void) {
         o->parentObj->oTreasureChestSound = 0;
     }
     struct MarioState *player = nearest_mario_state_to_object(o);
+    bool headsetContact = false;
+    Vec3f headsetPosition;
+    if (vr_is_active() && is_player_active(&gMarioStates[0]) &&
+        vr_get_stabilized_headset_world_position(headsetPosition, false)) {
+        // Use the tracked head rather than the avatar's feet. Keep this
+        // contact limited to the chest volume, not the larger shock hitbox.
+        const f32 dx = headsetPosition[0] - o->oPosX;
+        const f32 dz = headsetPosition[2] - o->oPosZ;
+        const f32 dy = headsetPosition[1] - o->oPosY;
+        headsetContact = dx * dx + dz * dz <= 180.0f * 180.0f &&
+            dy >= -30.0f && dy <= 160.0f;
+        if (headsetContact) player = &gMarioStates[0];
+    }
     switch (o->oAction) {
         case 0:
-            if (player && sync_object_is_owned_locally(o->parentObj->oSyncID) && obj_check_if_facing_toward_angle(o->oMoveAngleYaw, player->marioObj->header.gfx.angle[1] + 0x8000, 0x3000)) {
-                if (is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, 150)) {
+            if (player && sync_object_is_owned_locally(o->parentObj->oSyncID) && (headsetContact || obj_check_if_facing_toward_angle(o->oMoveAngleYaw, player->marioObj->header.gfx.angle[1] + 0x8000, 0x3000))) {
+                const f32 openingRadius = vr_is_active() && player->playerIndex == 0
+                    ? 180.0f : 150.0f;
+                if (headsetContact || is_point_within_radius_of_mario(o->oPosX, o->oPosY, o->oPosZ, openingRadius)) {
                     if (!o->parentObj->oTreasureChestIsLastInteractionIncorrect) {
                         if (o->parentObj->oTreasureChestCurrentAnswer == o->oBehParams2ndByte) {
                             play_sound(SOUND_GENERAL2_RIGHT_ANSWER, gGlobalSoundSource);

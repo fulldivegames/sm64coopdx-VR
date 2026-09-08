@@ -14,6 +14,11 @@
 #define MAX_SAVE_NAME_STRING 32
 
 #define DEFAULT_PORT 7777
+#ifdef __ANDROID__
+#define VR_BRIGHTNESS_DEFAULT 100U
+#else
+#define VR_BRIGHTNESS_DEFAULT 60U
+#endif
 #define DEFAULT_COOPNET_IP "net.coop64.us"
 #define DEFAULT_COOPNET_PORT 34197
 
@@ -29,7 +34,8 @@
 #define VR_COLOR_FILTER_VIRTUAL_BOY 1U
 #define VR_COLOR_FILTER_GAME_BOY    2U
 #define VR_COLOR_FILTER_SUPER_MARIO_LAND 3U
-#define VR_COLOR_FILTER_COUNT       4U
+#define VR_COLOR_FILTER_CELL_SHADED 4U
+#define VR_COLOR_FILTER_COUNT       5U
 
 // Camera height is stored directly in world units above Mario's gameplay
 // anchor, so the value shown in Camera Settings matches the applied height.
@@ -210,6 +216,14 @@ extern unsigned int configVrLBinding;
 extern unsigned int configVrRBinding;
 extern unsigned int configVrPauseBinding;
 extern unsigned int configVrSpecialBinding;
+extern unsigned int configVrSplitBinding;
+extern bool configVrSpeedrunHud;
+extern bool configVrSpeedrunProgressive;
+extern unsigned int configVrSpeedrunColor;
+extern unsigned int configVrSpeedrunScale;
+extern unsigned int configVrSpeedrunX;
+extern unsigned int configVrSpeedrunY;
+extern unsigned int configVrSpeedrunSegments;
 extern bool         configVrPhysicalPunching;
 extern bool         configVrPhysicalGrabbing;
 extern bool         configVrPhysicalClimbing;
@@ -225,6 +239,7 @@ extern bool         configVrSpecialMovesEnabled;
 extern bool         configVrSpecialFireFlower;
 extern unsigned int configVrBigHandsReach;
 extern bool         configVrSpecialFireFlowerMusic;
+extern bool         configVrAlternatePowerUpMusic;
 extern bool         configVrSpecialHammerSuit;
 extern bool         configVrSpecialSonicShoes;
 extern unsigned int configVrSonicShoesSpeed;
@@ -253,6 +268,7 @@ extern bool         configVrImmersiveStarSpawnFocus;
 extern bool         configVrImmersiveGhostPunchArm;
 extern bool         configVrImmersiveMatchMarioHeight;
 extern bool         configVrImmersiveFlipBillboards;
+extern bool         configVrCrossedTreeBillboards;
 extern bool         configVrMovementOverhaul;
 extern bool         configVrMarioPunchSound;
 extern bool         configVrMotionControlledDive;

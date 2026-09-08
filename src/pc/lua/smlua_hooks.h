@@ -9,6 +9,8 @@
 #include "pc/lua/utils/smlua_model_utils.h"
 
 // forward declare
+void smlua_character_menu_return_to_pause(void);
+bool smlua_character_menu_is_open(void);
 struct Camera;
 struct WarpDest;
 struct WallCollisionData;

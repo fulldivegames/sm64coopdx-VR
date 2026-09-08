@@ -10,6 +10,10 @@
 #include "pc/djui/djui_chat_message.h"
 #include "pc/crash_handler.h"
 #include "game/hud.h"
+#include "game/ingame_menu.h"
+#include "game/rendering_graph_node.h"
+#include "pc/djui/djui_hud_utils.h"
+#include "pc/vr/vr.h"
 #include "game/level_update.h"
 #include "pc/debug_context.h"
 #include "pc/network/network.h"
@@ -194,6 +198,39 @@ int smlua_hook_event(lua_State* L) {
 
 #include "smlua_hook_events_autogen.inl"
 
+static bool sCharacterMenuReturnToPause = false;
+static bool sCharacterMenuObservedOpen = false;
+
+bool smlua_character_menu_is_open(void) {
+    if (!vr_is_active() || gLuaState == NULL) return false;
+    struct LuaHookedEvent *hook = &sHookedEvents[HOOK_ON_HUD_RENDER];
+    for (int i = 0; i < hook->count; ++i) {
+        struct Mod *mod = hook->mod[i];
+        if (strstr(mod->relativePath, "character-select") == NULL &&
+            strcmp(mod->name, "Character Select") != 0) continue;
+        lua_getfield(gLuaState, LUA_REGISTRYINDEX, mod->relativePath);
+        bool open = false;
+        if (lua_istable(gLuaState, -1)) {
+            lua_pushliteral(gLuaState, "menuAndTransition");
+            lua_rawget(gLuaState, -2);
+            open = lua_toboolean(gLuaState, -1);
+            lua_pop(gLuaState, 1);
+            lua_pushliteral(gLuaState, "menu");
+            lua_rawget(gLuaState, -2);
+            open |= lua_toboolean(gLuaState, -1);
+            lua_pop(gLuaState, 1);
+        }
+        lua_pop(gLuaState, 1);
+        if (open) return true;
+    }
+    return false;
+}
+
+void smlua_character_menu_return_to_pause(void) {
+    sCharacterMenuReturnToPause = true;
+    sCharacterMenuObservedOpen = false;
+}
+
 static bool smlua_call_event_hooks_on_hud_render(void (*resetFunc)(void), bool renderBehind) {
     lua_State *L = gLuaState;
     if (L == NULL) { return false; }
@@ -215,6 +252,47 @@ static bool smlua_call_event_hooks_on_hud_render(void (*resetFunc)(void), bool r
                 continue;
             }
 
+            bool characterMenu = false;
+            if (vr_is_active() &&
+                (strstr(hook->mod[i]->relativePath, "character-select") != NULL ||
+                 strcmp(hook->mod[i]->name, "Character Select") == 0)) {
+                lua_getfield(L, LUA_REGISTRYINDEX, hook->mod[i]->relativePath);
+                if (lua_istable(L, -1)) {
+                    lua_pushliteral(L, "menu");
+                    lua_rawget(L, -2);
+                    characterMenu = lua_isboolean(L, -1) && lua_toboolean(L, -1);
+                    lua_pop(L, 1);
+                }
+                lua_pop(L, 1);
+                if (sCharacterMenuReturnToPause) {
+                    if (characterMenu) {
+                        sCharacterMenuObservedOpen = true;
+                    } else if (sCharacterMenuObservedOpen) {
+                        sCharacterMenuReturnToPause = false;
+                        sCharacterMenuObservedOpen = false;
+                        djui_open_pause_menu();
+                    }
+                }
+            }
+            // The preview world and every menu hook share one render target.
+            // Capturing individual callbacks left the 3D preview outside the
+            // theater and repeatedly cleared its layered background.
+            characterMenu = vr_character_menu_capture_active();
+            djui_hud_set_character_theater(characterMenu);
+            djui_hud_set_vr_game_hud_style(!characterMenu);
+            const bool vrHud = vr_is_active();
+            if (vrHud) {
+                gSPSaveState(gDisplayListHead++, G_STATE_GEOMETRY_MODE);
+                gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER | G_CULL_BOTH);
+                if (characterMenu) create_dl_ortho_matrix();
+                else create_dl_vr_hud_matrix();
+            }
+            if (characterMenu) {
+                djui_hud_reset_scissor();
+            }
+            // Apply opacity even when a HUD callback uses the default color.
+            djui_hud_reset_color();
+
             // push the callback onto the stack
             lua_rawgeti(L, LUA_REGISTRYINDEX, hook->reference[i]);
 
@@ -225,6 +303,9 @@ static bool smlua_call_event_hooks_on_hud_render(void (*resetFunc)(void), bool r
                 hookResult = true;
             }
 
+            djui_hud_set_character_theater(false);
+            djui_hud_set_vr_game_hud_style(false);
+            if (vrHud) gSPLoadState(gDisplayListHead++, G_STATE_GEOMETRY_MODE);
             if (resetFunc) { resetFunc(); }
         }
     }
@@ -1986,6 +2067,8 @@ void smlua_hook_replace_function_references(lua_State* L, int oldReference, int 
 }
 
 void smlua_clear_hooks(void) {
+    sCharacterMenuReturnToPause = false;
+    sCharacterMenuObservedOpen = false;
     memset(sLuaHookFailureStates, 0, sizeof(sLuaHookFailureStates));
     for (int i = 0; i < HOOK_MAX; i++) {
         struct LuaHookedEvent* hooked = &sHookedEvents[i];

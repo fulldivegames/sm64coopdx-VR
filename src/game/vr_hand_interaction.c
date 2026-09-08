@@ -38,6 +38,8 @@
 #include "pc/vr/vr.h"
 
 static void vr_special_moves_reset_big_hands(void);
+static bool sVrBigHandsPowered = false;
+static u16 sVrBigHandsTimer = 0;
 
 #ifdef DEBUG
 #define VR_INTERACTION_DEBUG(...) printf(__VA_ARGS__)
@@ -52,12 +54,12 @@ static void vr_special_moves_reset_big_hands(void);
 #define VR_HAND_COLLISION_RELEASE_MARGIN 3.0f
 #define VR_HAND_COLLISION_MAX_SWEEP 300.0f
 #define VR_HAND_COLLISION_MAX_CONTROLLER_SEPARATION 96.0f
-#define VR_BIG_HANDS_STALE_CONSTRAINT_CORRECTION 96.0f
 #define VR_FIST_MAX_SWEEP_DISTANCE 150.0f
 #define VR_PUNCH_SOUND_COMBO_RESET_FRAMES 18
 #define VR_MOTION_DIVE_PAIR_WINDOW_FRAMES 5
 #define VR_GRIP_CLOSE_THRESHOLD 0.55f
 #define VR_GRIP_OPEN_THRESHOLD 0.35f
+#define VR_TERRAIN_GRAB_WINDOW_FRAMES 6U
 #define VR_GRAB_EXTRA_REACH 16.0f
 #define VR_JRB_SPIKE_GRAB_EXTRA_REACH 56.0f
 #define VR_OBJECT_GRAB_EXTRA_REACH \
@@ -349,6 +351,7 @@ static u32 sVrBowserMotionTimestamp = 0;
 static Vec3f sVrBowserFrameVelocity = { 0.0f, 0.0f, 0.0f };
 static u8 sVrBowserFrameVelocitySamples = 0;
 static bool sVrInteractionTrackingActive = false;
+static bool sVrDeathResetActive = false;
 static bool sVrHeadsetColliderActive = false;
 static struct Object* sVrHeadsetColliderObject = NULL;
 static bool sVrFireFlowerPowered = false;
@@ -411,6 +414,9 @@ static f32 sVrBigHandsPickupVelocityY = 0.0f;
 static bool sVrBigHandsPickupLanded = false;
 static u16 sVrBigHandsPickupAge = 0;
 static struct ModAudio* sVrSonicShoesMusic = NULL;
+static struct ModAudio* sVrAlternatePowerUpMusic = NULL;
+static bool sVrAlternatePowerUpMusicPlaying = false;
+static bool sVrAlternatePowerUpMusicLoadAttempted = false;
 static bool sVrSonicShoesMusicLowered = false;
 static u16 sVrSonicShoesMusicFadeTimer = 0;
 static Vec3f sVrSonicShoesPreviousBoot[2] = { { 0 }, { 0 } };
@@ -479,9 +485,16 @@ struct VrHandCollisionState {
     bool constraintActive;
     struct Object* constraintObject;
     Vec3f previousRawPosition;
+    Vec3f previousCollisionPosition;
     Vec3f constraintNormal;
     f32 constraintOriginOffset;
+    struct Surface constraintTriangle;
+    bool secondaryActive;
+    struct Surface secondaryTriangle;
+    bool tertiaryActive;
+    struct Surface tertiaryTriangle;
 };
+static u32 sVrTerrainGripStart[VR_CONTROLLER_COUNT];
 static struct VrHandCollisionState
     sVrHandCollision[VR_CONTROLLER_COUNT] = { 0 };
 static struct VrHandCollisionState
@@ -551,108 +564,134 @@ static bool vr_hand_interaction_surface_is_climbable_exception(
         (surface->object->oInteractType & INTERACT_POLE) != 0;
 }
 
-void vr_hand_interaction_apply_hand_collision_position(
-    u32 hand,
-    Vec3f position
+static void vr_hand_interaction_set_constraint(
+    struct VrHandCollisionState* state, const struct Surface* surface
 ) {
-    if (hand >= VR_CONTROLLER_COUNT || position == NULL ||
-        !sVrHandCollision[hand].constraintActive) {
-        return;
+    const struct Surface previous[3] = {state->constraintTriangle,
+        state->secondaryTriangle, state->tertiaryTriangle};
+    const bool active[3] = {state->constraintActive, state->secondaryActive, state->tertiaryActive};
+    state->secondaryActive = state->tertiaryActive = false;
+    // A floor plus two walls needs three independent planes. Re-observing
+    // either old wall must not evict the other one from the contact set.
+    for (u32 i = 0; i < 3; ++i) {
+        if (!active[i]) continue;
+        const f32 dot = previous[i].normal.x * surface->normal.x +
+            previous[i].normal.y * surface->normal.y + previous[i].normal.z * surface->normal.z;
+        if (dot > .99f) continue;
+        if (!state->secondaryActive) {
+            state->secondaryTriangle = previous[i];
+            state->secondaryActive = true;
+        } else {
+            const struct Surface* second = &state->secondaryTriangle;
+            const f32 secondDot = previous[i].normal.x * second->normal.x +
+                previous[i].normal.y * second->normal.y + previous[i].normal.z * second->normal.z;
+            if (secondDot > .99f) continue;
+            state->tertiaryTriangle = previous[i];
+            state->tertiaryActive = true;
+            break;
+        }
     }
-    if (sVrHandCollision[hand].constraintObject != NULL &&
-        (sVrHandCollision[hand].constraintObject->activeFlags &
-            ACTIVE_FLAG_ACTIVE) == 0) {
-        sVrHandCollision[hand].constraintActive = false;
-        sVrHandCollision[hand].constraintObject = NULL;
-        return;
-    }
-    const f32 radius = fminf(
-        vr_hand_interaction_fist_radius(),
-        VR_HAND_COLLISION_RADIUS_MAX
-    );
-    const f32 distance =
-        sVrHandCollision[hand].constraintNormal[0] * position[0] +
-        sVrHandCollision[hand].constraintNormal[1] * position[1] +
-        sVrHandCollision[hand].constraintNormal[2] * position[2] +
-        sVrHandCollision[hand].constraintOriginOffset;
-    if (distance >= radius) {
-        return;
-    }
-    const f32 correction = radius - distance;
-    // Collision may visually hold a glove at a surface, but it must never
-    // become detached from the physical controller. If satisfying the stale
-    // plane would leave the glove over roughly one foot from the live pose,
-    // release the constraint immediately and let the render-rate controller
-    // matrix pull the glove back—even when that means crossing geometry.
-    if (correction > VR_HAND_COLLISION_MAX_CONTROLLER_SEPARATION) {
-        sVrHandCollision[hand].constraintActive = false;
-        sVrHandCollision[hand].constraintObject = NULL;
-        return;
-    }
-    for (u32 axis = 0; axis < 3; axis++) {
-        position[axis] +=
-            sVrHandCollision[hand].constraintNormal[axis] * correction;
-    }
+    state->constraintTriangle = *surface;
+    state->constraintActive = true;
+    state->constraintObject = surface->object;
+    vec3f_set(state->constraintNormal, surface->normal.x, surface->normal.y, surface->normal.z);
+    state->constraintOriginOffset = surface->originOffset;
 }
 
-static void vr_hand_interaction_set_hand_constraint(
-    u32 hand,
-    const struct Surface* surface
-) {
-    sVrHandCollision[hand].constraintActive = true;
-    sVrHandCollision[hand].constraintObject = surface->object;
-    sVrHandCollision[hand].constraintNormal[0] = surface->normal.x;
-    sVrHandCollision[hand].constraintNormal[1] = surface->normal.y;
-    sVrHandCollision[hand].constraintNormal[2] = surface->normal.z;
-    sVrHandCollision[hand].constraintOriginOffset =
-        surface->originOffset;
+static void vr_hand_interaction_set_hand_constraint(u32 hand, const struct Surface* surface) {
+    vr_hand_interaction_set_constraint(&sVrHandCollision[hand], surface);
 }
 
-static void vr_hand_interaction_set_big_hands_constraint(
-    u32 hand,
-    const struct Surface* surface
-) {
-    sVrBigHandsCollision[hand].constraintActive = true;
-    sVrBigHandsCollision[hand].constraintObject = surface->object;
-    sVrBigHandsCollision[hand].constraintNormal[0] = surface->normal.x;
-    sVrBigHandsCollision[hand].constraintNormal[1] = surface->normal.y;
-    sVrBigHandsCollision[hand].constraintNormal[2] = surface->normal.z;
-    sVrBigHandsCollision[hand].constraintOriginOffset =
-        surface->originOffset;
+static void vr_hand_interaction_set_big_hands_constraint(u32 hand, const struct Surface* surface) {
+    vr_hand_interaction_set_constraint(&sVrBigHandsCollision[hand], surface);
 }
 
-void vr_hand_interaction_apply_big_hands_collision_position(
-    u32 hand,
-    Vec3f position
+static void vr_hand_interaction_apply_contacts(struct VrHandCollisionState* state, Vec3f position) {
+    if (!state->rawPositionValid) state->secondaryActive = state->tertiaryActive = false;
+    const f32 radius = fminf(vr_hand_interaction_fist_radius(), VR_HAND_COLLISION_RADIUS_MAX);
+    struct Surface* surfaces[3] = {&state->constraintTriangle, &state->secondaryTriangle, &state->tertiaryTriangle};
+    bool* active[3] = {&state->constraintActive, &state->secondaryActive, &state->tertiaryActive};
+    Vec3f raw;
+    vec3f_copy(raw, position);
+    for (u32 i = 0; i < 3; ++i) {
+        if (*active[i] && ((surfaces[i]->object != NULL &&
+            !(surfaces[i]->object->activeFlags & ACTIVE_FLAG_ACTIVE)) ||
+            vr_hand_interaction_surface_distance(surfaces[i], raw) > radius + VR_HAND_COLLISION_RELEASE_MARGIN)) {
+            *active[i] = false;
+        }
+    }
+    // Resolve the intersection before validating finite triangles. At a corner
+    // the penetrating raw target can be outside BOTH triangles, although the
+    // corrected glove is supported by both. Recompute if a finite face releases.
+    for (u32 validation = 0; validation < 4; ++validation) {
+        vec3f_copy(position, raw);
+        for (u32 pass = 0; pass < 12; ++pass) {
+            for (u32 i = 0; i < 3; ++i) {
+                if (!*active[i]) continue;
+                const f32 correction = radius - vr_hand_interaction_surface_distance(surfaces[i], position);
+                if (correction > 0) {
+                    position[0] += surfaces[i]->normal.x * correction;
+                    position[1] += surfaces[i]->normal.y * correction;
+                    position[2] += surfaces[i]->normal.z * correction;
+                }
+            }
+        }
+        bool released = false;
+        for (u32 i = 0; i < 3; ++i) {
+            if (!*active[i]) continue;
+            Vec3f projected, closest, delta;
+            const f32 distance = vr_hand_interaction_surface_distance(surfaces[i], position);
+            vec3f_set(projected, position[0] - surfaces[i]->normal.x * distance,
+                position[1] - surfaces[i]->normal.y * distance,
+                position[2] - surfaces[i]->normal.z * distance);
+            closest_point_to_triangle(surfaces[i], projected, closest);
+            vec3f_dif(delta, projected, closest);
+            if (vec3f_dot(delta, delta) > (radius + 3) * (radius + 3)) {
+                *active[i] = false;
+                released = true;
+            }
+        }
+        if (!released) break;
+    }
+    if (!state->constraintActive) state->constraintObject = NULL;
+}
+
+void vr_hand_interaction_apply_hand_collision_position(u32 hand, Vec3f position) {
+    if (hand < VR_CONTROLLER_COUNT && position != NULL)
+        vr_hand_interaction_apply_contacts(&sVrHandCollision[hand], position);
+}
+
+void vr_hand_interaction_apply_big_hands_collision_position(u32 hand, Vec3f position) {
+    if (hand < VR_CONTROLLER_COUNT && position != NULL)
+        vr_hand_interaction_apply_contacts(&sVrBigHandsCollision[hand], position);
+}
+
+static struct Surface* vr_hand_interaction_sweep_contacts(
+    struct VrHandCollisionState* state, Vec3f position, f32 radius
 ) {
-    if (hand >= VR_CONTROLLER_COUNT || position == NULL ||
-        !sVrBigHandsCollision[hand].constraintActive) {
-        return;
+    if (!state->rawPositionValid) return NULL;
+    struct Surface* last = NULL;
+    // One slide can enter another face (e.g. a bevel after a wall). Sweep the
+    // corrected path again before accepting it, always from the last safe glove.
+    for (u32 pass = 0; pass < 4; ++pass) {
+        Vec3f sweep, hit;
+        vec3f_dif(sweep, position, state->previousCollisionPosition);
+        const f32 length = vec3f_length(sweep);
+        if (length <= .01f || length > VR_HAND_COLLISION_MAX_SWEEP) break;
+        struct Surface* surface = NULL;
+        find_surface_on_hand_ray(state->previousCollisionPosition, sweep, &surface, hit);
+        if (!surface || vr_hand_interaction_surface_is_climbable_exception(surface)) break;
+        const f32 previousDistance = vr_hand_interaction_surface_distance(surface, state->previousCollisionPosition);
+        const f32 correction = radius - vr_hand_interaction_surface_distance(surface, position);
+        if (previousDistance < -radius || correction <= .001f) break;
+        position[0] += surface->normal.x * correction;
+        position[1] += surface->normal.y * correction;
+        position[2] += surface->normal.z * correction;
+        vr_hand_interaction_set_constraint(state, surface);
+        vr_hand_interaction_apply_contacts(state, position);
+        last = surface;
     }
-    if (sVrBigHandsCollision[hand].constraintObject != NULL &&
-        (sVrBigHandsCollision[hand].constraintObject->activeFlags &
-            ACTIVE_FLAG_ACTIVE) == 0) {
-        sVrBigHandsCollision[hand].constraintActive = false;
-        sVrBigHandsCollision[hand].constraintObject = NULL;
-        return;
-    }
-    const f32 radius = fminf(
-        vr_hand_interaction_fist_radius(),
-        VR_HAND_COLLISION_RADIUS_MAX
-    );
-    const f32 distance =
-        sVrBigHandsCollision[hand].constraintNormal[0] * position[0] +
-        sVrBigHandsCollision[hand].constraintNormal[1] * position[1] +
-        sVrBigHandsCollision[hand].constraintNormal[2] * position[2] +
-        sVrBigHandsCollision[hand].constraintOriginOffset;
-    if (distance >= radius) {
-        return;
-    }
-    const f32 correction = radius - distance;
-    for (u32 axis = 0; axis < 3; axis++) {
-        position[axis] +=
-            sVrBigHandsCollision[hand].constraintNormal[axis] * correction;
-    }
+    return last;
 }
 
 static bool vr_hand_interaction_resolve_hand_collision(
@@ -680,71 +719,15 @@ static bool vr_hand_interaction_resolve_hand_collision(
         state->rawPositionValid = false;
     }
 
-    if (state->constraintActive) {
-        const f32 distance =
-            state->constraintNormal[0] * rawPosition[0] +
-            state->constraintNormal[1] * rawPosition[1] +
-            state->constraintNormal[2] * rawPosition[2] +
-            state->constraintOriginOffset;
-        if (distance < radius + VR_HAND_COLLISION_RELEASE_MARGIN) {
-            vr_hand_interaction_apply_hand_collision_position(
-                hand,
-                position
-            );
-            collided = distance < radius;
-        } else {
-            state->constraintActive = false;
-            state->constraintObject = NULL;
-        }
-    }
+    vr_hand_interaction_apply_contacts(state, position);
+    collided = state->constraintActive || state->secondaryActive || state->tertiaryActive;
 
-    if (state->rawPositionValid) {
-        Vec3f sweep = {
-            rawPosition[0] - state->previousRawPosition[0],
-            rawPosition[1] - state->previousRawPosition[1],
-            rawPosition[2] - state->previousRawPosition[2]
-        };
-        const f32 sweepLength = vec3f_length(sweep);
-        if (sweepLength > 0.01f &&
-            sweepLength <= VR_HAND_COLLISION_MAX_SWEEP) {
-            Vec3f hitPosition;
-            struct Surface* hitSurface = NULL;
-            find_surface_on_ray(
-                state->previousRawPosition,
-                sweep,
-                &hitSurface,
-                hitPosition,
-                2.0f
-            );
-            if (hitSurface != NULL &&
-                !vr_hand_interaction_surface_is_climbable_exception(
-                    hitSurface
-                )) {
-                const f32 previousDistance =
-                    vr_hand_interaction_surface_distance(
-                        hitSurface,
-                        state->previousRawPosition
-                    );
-                if (previousDistance >= -radius) {
-                    position[0] = hitPosition[0] +
-                        hitSurface->normal.x * radius;
-                    position[1] = hitPosition[1] +
-                        hitSurface->normal.y * radius;
-                    position[2] = hitPosition[2] +
-                        hitSurface->normal.z * radius;
-                    collisionSurface = hitSurface;
-                    collided = true;
-                }
-            }
-        } else if (sweepLength > VR_HAND_COLLISION_MAX_SWEEP) {
-            state->constraintActive = false;
-            state->constraintObject = NULL;
-        }
-    }
+    collisionSurface = vr_hand_interaction_sweep_contacts(state, position, radius);
+    if (collisionSurface != NULL) collided = true;
 
-    if (!collided) {
+    {
         Vec3f wallPosition;
-        vec3f_copy(wallPosition, rawPosition);
+        vec3f_copy(wallPosition, position);
         struct WallCollisionData wallData = { 0 };
         resolve_and_return_wall_collisions_data(
             wallPosition,
@@ -758,23 +741,23 @@ static bool vr_hand_interaction_resolve_hand_collision(
                 )) {
                 vec3f_copy(position, wallPosition);
                 collisionSurface = wallData.walls[wall];
+                vr_hand_interaction_set_constraint(state, collisionSurface);
                 collided = true;
-                break;
             }
         }
     }
 
     struct Surface* floor = NULL;
     const f32 floorHeight = find_floor(
-        rawPosition[0],
-        rawPosition[1] + radius,
-        rawPosition[2],
+        position[0],
+        position[1] + radius,
+        position[2],
         &floor
     );
     if (floor != NULL &&
         !vr_hand_interaction_surface_is_climbable_exception(floor) &&
-        rawPosition[1] < floorHeight + radius &&
-        rawPosition[1] > floorHeight - radius * 2.0f) {
+        position[1] < floorHeight + radius &&
+        position[1] > floorHeight - radius * 2.0f) {
         position[1] = floorHeight + radius;
         collisionSurface = floor;
         collided = true;
@@ -782,37 +765,18 @@ static bool vr_hand_interaction_resolve_hand_collision(
 
     struct Surface* ceiling = NULL;
     const f32 ceilingHeight = find_ceil(
-        rawPosition[0],
-        rawPosition[1] - radius,
-        rawPosition[2],
+        position[0],
+        position[1] - radius,
+        position[2],
         &ceiling
     );
     if (ceiling != NULL &&
         !vr_hand_interaction_surface_is_climbable_exception(ceiling) &&
-        rawPosition[1] > ceilingHeight - radius &&
-        rawPosition[1] < ceilingHeight + radius * 2.0f) {
+        position[1] > ceilingHeight - radius &&
+        position[1] < ceilingHeight + radius * 2.0f) {
         position[1] = ceilingHeight - radius;
         collisionSurface = ceiling;
         collided = true;
-    }
-
-    // Never let a collision plane leave a glove behind its controller. The
-    // visible glove and gameplay fist both snap back after roughly one foot,
-    // rather than waiting until the hand is several feet from the headset.
-    if ((collided || state->constraintActive) &&
-        collisionSurface == NULL) {
-        const f32 dx = position[0] - rawPosition[0];
-        const f32 dy = position[1] - rawPosition[1];
-        const f32 dz = position[2] - rawPosition[2];
-        if (dx * dx + dy * dy + dz * dz >
-            VR_HAND_COLLISION_MAX_CONTROLLER_SEPARATION *
-                VR_HAND_COLLISION_MAX_CONTROLLER_SEPARATION) {
-            vec3f_copy(position, rawPosition);
-            state->constraintActive = false;
-            state->constraintObject = NULL;
-            collisionSurface = NULL;
-            collided = false;
-        }
     }
 
     if (collisionSurface != NULL) {
@@ -833,7 +797,9 @@ static bool vr_hand_interaction_resolve_hand_collision(
         }
     }
 
+    vr_hand_interaction_apply_contacts(state, position);
     vec3f_copy(state->previousRawPosition, rawPosition);
+    vec3f_copy(state->previousCollisionPosition, position);
     state->rawPositionValid = true;
     return collided;
 }
@@ -875,83 +841,18 @@ static bool vr_hand_interaction_resolve_big_hands_collision(
         state->rawPositionValid = false;
     }
 
-    if (state->constraintActive) {
-        const f32 distance =
-            state->constraintNormal[0] * rawPosition[0] +
-            state->constraintNormal[1] * rawPosition[1] +
-            state->constraintNormal[2] * rawPosition[2] +
-            state->constraintOriginOffset;
-        if (distance < radius + VR_HAND_COLLISION_RELEASE_MARGIN) {
-            if (distance < radius) {
-                const f32 correction = radius - distance;
-                if (correction >
-                        VR_BIG_HANDS_STALE_CONSTRAINT_CORRECTION) {
-                    /* Keep the extended target intact. Falling back to the
-                     * raw controller here silently disabled Big Hands reach
-                     * whenever a stale surface constraint was encountered. */
-                    state->rawPositionValid = false;
-                    state->constraintActive = false;
-                    state->constraintObject = NULL;
-                    return false;
-                }
-                vr_hand_interaction_apply_big_hands_collision_position(
-                    hand,
-                    position
-                );
-                collided = true;
-            }
-        } else {
-            state->constraintActive = false;
-            state->constraintObject = NULL;
-        }
-    }
+    vr_hand_interaction_apply_contacts(state, position);
+    collided = state->constraintActive || state->secondaryActive || state->tertiaryActive;
 
-    if (state->rawPositionValid) {
-        Vec3f sweep = {
-            rawPosition[0] - state->previousRawPosition[0],
-            rawPosition[1] - state->previousRawPosition[1],
-            rawPosition[2] - state->previousRawPosition[2]
-        };
-        const f32 sweepLength = vec3f_length(sweep);
-        if (sweepLength > 0.01f &&
-            sweepLength <= VR_HAND_COLLISION_MAX_SWEEP) {
-            Vec3f hitPosition;
-            struct Surface* hitSurface = NULL;
-            find_surface_on_ray(
-                state->previousRawPosition,
-                sweep,
-                &hitSurface,
-                hitPosition,
-                2.0f
-            );
-            if (hitSurface != NULL &&
-                !vr_hand_interaction_surface_is_climbable_exception(
-                    hitSurface
-                )) {
-                const f32 previousDistance =
-                    vr_hand_interaction_surface_distance(
-                        hitSurface,
-                        state->previousRawPosition
-                    );
-                if (previousDistance >= -radius) {
-                    position[0] = hitPosition[0] +
-                        hitSurface->normal.x * radius;
-                    position[1] = hitPosition[1] +
-                        hitSurface->normal.y * radius;
-                    position[2] = hitPosition[2] +
-                        hitSurface->normal.z * radius;
-                    collisionSurface = hitSurface;
-                    collided = true;
-                }
-            }
-        }
-    }
+    collisionSurface = vr_hand_interaction_sweep_contacts(state, position, radius);
+    if (collisionSurface != NULL) collided = true;
 
-    if (!collided) {
+    {
         Vec3f wallPosition;
-        vec3f_copy(wallPosition, rawPosition);
+        vec3f_copy(wallPosition, position);
         for (u32 pass = 0; pass < 2; pass++) {
             struct WallCollisionData wallData = { 0 };
+            bool wallFound = false;
             resolve_and_return_wall_collisions_data(
                 wallPosition,
                 0.0f,
@@ -963,11 +864,12 @@ static bool vr_hand_interaction_resolve_big_hands_collision(
                         wallData.walls[wall]
                     )) {
                     collisionSurface = wallData.walls[wall];
+                    vr_hand_interaction_set_constraint(state, collisionSurface);
                     collided = true;
-                    break;
+                    wallFound = true;
                 }
             }
-            if (!collided) {
+            if (!wallFound) {
                 break;
             }
             vec3f_copy(position, wallPosition);
@@ -976,15 +878,15 @@ static bool vr_hand_interaction_resolve_big_hands_collision(
 
     struct Surface* floor = NULL;
     const f32 floorHeight = find_floor(
-        rawPosition[0],
-        rawPosition[1] + radius,
-        rawPosition[2],
+        position[0],
+        position[1] + radius,
+        position[2],
         &floor
     );
     if (floor != NULL &&
         !vr_hand_interaction_surface_is_climbable_exception(floor) &&
-        rawPosition[1] < floorHeight + radius &&
-        rawPosition[1] > floorHeight - radius * 2.0f) {
+        position[1] < floorHeight + radius &&
+        position[1] > floorHeight - radius * 2.0f) {
         position[1] = floorHeight + radius;
         collisionSurface = floor;
         collided = true;
@@ -992,15 +894,15 @@ static bool vr_hand_interaction_resolve_big_hands_collision(
 
     struct Surface* ceiling = NULL;
     const f32 ceilingHeight = find_ceil(
-        rawPosition[0],
-        rawPosition[1] - radius,
-        rawPosition[2],
+        position[0],
+        position[1] - radius,
+        position[2],
         &ceiling
     );
     if (ceiling != NULL &&
         !vr_hand_interaction_surface_is_climbable_exception(ceiling) &&
-        rawPosition[1] > ceilingHeight - radius &&
-        rawPosition[1] < ceilingHeight + radius * 2.0f) {
+        position[1] > ceilingHeight - radius &&
+        position[1] < ceilingHeight + radius * 2.0f) {
         position[1] = ceilingHeight - radius;
         collisionSurface = ceiling;
         collided = true;
@@ -1013,7 +915,9 @@ static bool vr_hand_interaction_resolve_big_hands_collision(
         );
     }
 
+    vr_hand_interaction_apply_contacts(state, position);
     vec3f_copy(state->previousRawPosition, rawPosition);
+    vec3f_copy(state->previousCollisionPosition, position);
     state->rawPositionValid = true;
     return collided;
 }
@@ -1217,10 +1121,10 @@ static f32 vr_hand_interaction_max_climb_camera_offset(
         return maxOffset;
     }
 
-    // A pole grip is allowed to travel for the full height of its native
-    // hitbox. The generic safety cap is intentionally retained for walls and
-    // ceilings, but applying it to poles stops tall poles (such as the first
-    // Bowser-in-the-Sky pole) after roughly 360 units.
+    // Keep the legacy fallback value available for malformed/unknown climb
+    // state. Valid physical climb types no longer use a total accumulated
+    // offset cap; a pole still gets a map-aware value here for diagnostics and
+    // compatibility with older callers.
     const f32 poleHeight = fmaxf(
         sVrPhysicalClimbPole->hitboxHeight,
         1.0f
@@ -2643,7 +2547,7 @@ static struct Object* vr_hand_interaction_find_bowser_tail(
     const f32 reach = 100.0f + handRadius + VR_GRAB_EXTRA_REACH;
     const f32 reachSquared = reach * reach;
     struct Object* nearestTail = NULL;
-    f32 nearestDistanceSquared = 0.0f;
+    f32 nearestDistanceSquared = INFINITY;
 
     struct ObjectNode* list = &gObjectLists[OBJ_LIST_GENACTOR];
     struct ObjectNode* node = list->next;
@@ -2770,7 +2674,7 @@ static struct Object* vr_hand_interaction_find_grab_target(
         vr_hand_interaction_fist_radius() *
         vr_special_moves_big_hands_scale();
     struct Object* nearestObject = NULL;
-    f32 nearestDistanceSquared = 0.0f;
+    f32 nearestDistanceSquared = INFINITY;
 
     for (s32 listIndex = 0;
          listIndex < NUM_OBJ_LISTS;
@@ -2857,18 +2761,22 @@ static f32 vr_hand_interaction_pole_extra_reach(
 
 static struct Object* vr_hand_interaction_find_pole_target(
     struct MarioState* mario,
-    const Vec3f handPosition
+    const Vec3f handPosition,
+    bool allowClimbHandoff
 ) {
     if (mario == NULL ||
         mario->heldObj != NULL ||
         gObjectLists == NULL ||
-        vr_hand_interaction_climb_is_occupied()) {
+        sVrTrackedHeldObject != NULL || sVrTrackedHootObject != NULL ||
+        sVrTrackedAnchorObject != NULL || sVrBowserGripMask != 0 ||
+        (!allowClimbHandoff &&
+         sVrPhysicalClimbType != VR_PHYSICAL_CLIMB_NONE)) {
         return NULL;
     }
 
     const f32 handRadius = vr_hand_interaction_fist_radius();
     struct Object* nearestPole = NULL;
-    f32 nearestDistanceSquared = 0.0f;
+    f32 nearestDistanceSquared = INFINITY;
     struct ObjectNode* list = &gObjectLists[OBJ_LIST_POLELIKE];
     struct ObjectNode* node = list->next;
 
@@ -2921,7 +2829,37 @@ static void vr_hand_interaction_set_physical_climb_owner(
         sVrPhysicalClimbLastPosition[hand][axis] = climbPosition[axis];
     }
     sVrPhysicalClimbLastPositionValid[hand] = true;
+    // The body must stay hidden for the whole airborne portion of a physical
+    // grab. Latching here (at the actual attachment edge) also covers a
+    // native hangable/tree release that starts and ends between two update
+    // snapshots, which the end-of-frame attachment test can miss.
+    sVrHideBodyUntilLanding = true;
+    sVrBodyHideWasAttached = true;
+    sVrBodyHideLevel = gCurrLevelNum;
+    sVrBodyHideArea = gCurrAreaIndex;
     vr_invalidate_first_person_tracked_world_cache();
+}
+
+static bool vr_hand_interaction_action_is_death(u32 action) {
+    switch (action) {
+        case ACT_STANDING_DEATH:
+        case ACT_QUICKSAND_DEATH:
+        case ACT_ELECTROCUTION:
+        case ACT_SUFFOCATION:
+        case ACT_DEATH_ON_STOMACH:
+        case ACT_DEATH_ON_BACK:
+        case ACT_EATEN_BY_BUBBA:
+        case ACT_DROWNING:
+        case ACT_WATER_DEATH:
+        case ACT_DEATH_EXIT:
+        case ACT_UNUSED_DEATH_EXIT:
+        case ACT_FALLING_DEATH_EXIT:
+        case ACT_SPECIAL_DEATH_EXIT:
+        case ACT_DEATH_EXIT_LAND:
+            return true;
+        default:
+            return false;
+    }
 }
 
 static bool vr_hand_interaction_start_pole_climb(
@@ -2951,11 +2889,23 @@ static bool vr_hand_interaction_start_pole_climb(
 
     Vec3f previousPosition;
     vec3f_copy(previousPosition, mario->pos);
+    const bool preserveBodyAnchor =
+        vr_special_moves_big_hands_active() &&
+        pole->behavior ==
+            segmented_to_virtual(smlua_override_behavior(bhvTree));
     mario_stop_riding_and_holding(mario);
     mario->interactObj = pole;
     mario->usedObj = pole;
-    mario->pos[0] = pole->oPosX;
-    mario->pos[2] = pole->oPosZ;
+    // Big Hands already owns a tracked hand point that can be well away from
+    // Mario. Snapping the gameplay anchor to a tree before the physical
+    // solver has consumed that point puts the native body inside the tree's
+    // collision volume and can immediately send Mario into a death action.
+    // Keep the body where it is for the physical tree handoff; the tracked
+    // climb offset will move it only as the hand actually pulls.
+    if (!preserveBodyAnchor) {
+        mario->pos[0] = pole->oPosX;
+        mario->pos[2] = pole->oPosZ;
+    }
     vec3f_set(mario->vel, 0.0f, 0.0f, 0.0f);
     mario->forwardVel = 0.0f;
     mario->marioObj->oMarioPoleUnk108 = 0;
@@ -3941,7 +3891,8 @@ static bool vr_hand_interaction_try_physical_climb(
 
     struct Object* pole = vr_hand_interaction_find_pole_target(
         mario,
-        handPosition
+        handPosition,
+        false
     );
     if (pole != NULL) {
         return vr_hand_interaction_start_pole_climb(
@@ -4088,10 +4039,10 @@ static void vr_hand_interaction_activate_flexible_contact(
 
 static bool vr_hand_interaction_try_flexible_climb_hand(
     struct MarioState* mario, u32 hand, const Vec3f handPosition,
-    const Vec3f climbPosition
+    const Vec3f climbPosition, bool allowTerrainContact
 ) {
     struct VrClimbHandContact next = { 0 };
-    next.pole = vr_hand_interaction_find_pole_target(mario, handPosition);
+    next.pole = vr_hand_interaction_find_pole_target(mario, handPosition, true);
     if (next.pole != NULL) {
         bool allowed = true;
         smlua_call_event_hooks(HOOK_ALLOW_INTERACT, mario, next.pole,
@@ -4099,10 +4050,16 @@ static bool vr_hand_interaction_try_flexible_climb_hand(
         if (!allowed) return false;
         for (u32 axis = 0; axis < 3; axis++) next.point[axis] = handPosition[axis];
     } else {
-        if (!vr_hand_interaction_find_nearest_surface_contact(
+        f32 nativeHeight = 0.0f;
+        const bool nativeContact = vr_hand_interaction_find_ceiling_contact(
+            mario, handPosition, handPosition, false, false,
+            &next.surface, &nativeHeight, next.point) &&
+            next.surface != NULL && next.surface->type == SURFACE_HANGABLE;
+        if (!nativeContact && (!allowTerrainContact ||
+            !vr_hand_interaction_find_nearest_surface_contact(
                 mario, handPosition,
                 vr_special_moves_big_hands_active() ? VR_BIG_HANDS_GROUND_REACH : 60.0f,
-                vr_special_moves_big_hands_active(), &next.surface, next.point)) {
+                vr_special_moves_big_hands_active(), &next.surface, next.point))) {
             return false;
         }
         next.surfaceObject = next.surface->object;
@@ -4160,8 +4117,8 @@ static bool vr_hand_interaction_try_add_physical_climb_hand(
 
     if (ns_coopnet_vr_gameplay_allowed() &&
         (configVrCheatSurfaceClimbing || vr_special_moves_big_hands_active())) {
-        return allowCheatContact && vr_hand_interaction_try_flexible_climb_hand(
-            mario, hand, handPosition, climbPosition);
+        return vr_hand_interaction_try_flexible_climb_hand(
+            mario, hand, handPosition, climbPosition, allowCheatContact);
     }
 
     if (sVrPhysicalClimbType == VR_PHYSICAL_CLIMB_POLE) {
@@ -4578,9 +4535,9 @@ static void vr_hand_interaction_sync_climb_collider_to_headset(
         }
     }
 
-    // Cap the accumulated offset so an invalid corner/slope correction can
-    // never launch the body across the map. Normal hand movement remains
-    // untouched; this only catches a nonphysical accumulated correction.
+    // Keep a finite-value guard, but do not cap the accumulated translation:
+    // a legitimate climb can span an entire tall bridge, pole, or wall over
+    // many hand-over-hand pulls.
     const f32 climbOffsetSquared =
         sVrPhysicalClimbCameraOffset[0] *
             sVrPhysicalClimbCameraOffset[0] +
@@ -4590,14 +4547,15 @@ static void vr_hand_interaction_sync_climb_collider_to_headset(
             sVrPhysicalClimbCameraOffset[2];
     const f32 maxClimbCameraOffset =
         vr_hand_interaction_max_climb_camera_offset(mario);
-    // Big Hands supports successive terrain pulls, not a tether to the first
-    // grab. Bound individual tracking deltas below, not total valid travel.
-    const bool continuousBigHandsClimb =
-        vr_special_moves_big_hands_active() &&
-        (sVrPhysicalClimbType == VR_PHYSICAL_CLIMB_CHEAT_CEILING ||
-         sVrPhysicalClimbType == VR_PHYSICAL_CLIMB_CHEAT_WALL);
+    // Every physical grip is incremental. Native hangables, poles, and Big
+    // Hands surfaces may all be traversed over many hand-over-hand pulls;
+    // the per-frame environment correction above remains the safety bound.
+    // Applying this total offset cap to a native bridge underside stopped
+    // otherwise valid climbs after only a few pulls.
+    const bool continuousPhysicalClimb =
+        sVrPhysicalClimbType != VR_PHYSICAL_CLIMB_NONE;
     if (!isfinite(climbOffsetSquared) ||
-        (!continuousBigHandsClimb && climbOffsetSquared >
+        (!continuousPhysicalClimb && climbOffsetSquared >
             maxClimbCameraOffset * maxClimbCameraOffset)) {
         const f32 climbOffsetLength = sqrtf(
             fmaxf(0.0f, climbOffsetSquared)
@@ -5119,7 +5077,7 @@ static struct Object* vr_hand_interaction_find_anchor_target(
 
     const f32 handRadius = vr_hand_interaction_fist_radius();
     struct Object* nearestObject = NULL;
-    f32 nearestDistanceSquared = 0.0f;
+    f32 nearestDistanceSquared = INFINITY;
 
     for (s32 listIndex = 0;
          listIndex < NUM_OBJ_LISTS;
@@ -6314,7 +6272,8 @@ static void vr_special_moves_reset_sonic_shoes(void) {
     sVrSonicShoesLevel = -1;
     sVrSonicShoesArea = -1;
     sVrSonicShoesTrailValid = false;
-    if (sVrSonicShoesMusic != NULL && sVrSonicShoesMusicFadeTimer == 0) {
+    if (sVrSonicShoesMusicLowered && sVrSonicShoesMusic != NULL &&
+        sVrSonicShoesMusicFadeTimer == 0) {
         sVrSonicShoesMusicFadeTimer = VR_SONIC_SHOES_MUSIC_FADE_FRAMES;
     } else if (sVrSonicShoesMusicLowered) {
         // If the stream failed to load, or a new power-up replaces Shoes
@@ -6375,6 +6334,18 @@ static void vr_special_moves_reset_power(void) {
     for (u32 slot = 0; slot < VR_FIREBALL_PROJECTILE_COUNT; slot++) {
         vr_special_moves_clear_fireball_projectile(slot);
     }
+}
+
+void vr_special_moves_replace_powerup(void) {
+    // End stream ownership before resets can schedule an outgoing fade.
+    vr_hand_interaction_release_custom_music();
+    vr_special_moves_reset_power();
+    vr_special_moves_reset_hammer_suit();
+    vr_special_moves_reset_sonic_shoes();
+    vr_special_moves_reset_big_hands();
+    stop_cap_music();
+    gMarioStates[0].flags &= ~MARIO_SPECIAL_CAPS;
+    gMarioStates[0].capTimer = 0;
 }
 
 static bool vr_special_moves_online_allowed(void) {
@@ -6458,14 +6429,13 @@ bool vr_special_moves_grant_fire_flower(void) {
         gMarioStates[0].marioObj == NULL) {
         return false;
     }
-    vr_special_moves_reset_hammer_suit();
-    vr_special_moves_reset_sonic_shoes();
+    vr_special_moves_replace_powerup();
     sVrFireFlowerPowered = true;
     sVrFireFlowerTimer = VR_FIRE_FLOWER_DURATION_FRAMES;
     sVrFireFlowerMusicTimer = VR_FIRE_FLOWER_DURATION_FRAMES;
     sVrFireFlowerLevel = gCurrLevelNum;
     sVrFireFlowerArea = gCurrAreaIndex;
-    if (configVrSpecialFireFlowerMusic &&
+    if (configVrSpecialFireFlowerMusic && !configVrAlternatePowerUpMusic &&
         (gMarioStates[0].flags &
          (MARIO_METAL_CAP | MARIO_VANISH_CAP)) == 0) {
         play_cap_music(
@@ -6484,7 +6454,7 @@ static void vr_special_moves_update_fire_flower_music(
     }
 
     const u32 specialCaps = mario->flags & MARIO_SPECIAL_CAPS;
-    if (!configVrSpecialFireFlowerMusic) {
+    if (!configVrSpecialFireFlowerMusic || configVrAlternatePowerUpMusic) {
         if (specialCaps == 0) {
             stop_cap_music();
         }
@@ -7229,14 +7199,13 @@ bool vr_special_moves_grant_hammer_suit(void) {
         gMarioStates[0].marioObj == NULL) {
         return false;
     }
-    vr_special_moves_reset_power();
-    vr_special_moves_reset_sonic_shoes();
+    vr_special_moves_replace_powerup();
     sVrHammerSuitPowered = true;
     sVrHammerSuitTimer = VR_HAMMER_SUIT_DURATION_FRAMES;
     sVrHammerSuitMusicTimer = VR_HAMMER_SUIT_DURATION_FRAMES;
     sVrHammerSuitLevel = gCurrLevelNum;
     sVrHammerSuitArea = gCurrAreaIndex;
-    if (configVrSpecialFireFlowerMusic &&
+    if (configVrSpecialFireFlowerMusic && !configVrAlternatePowerUpMusic &&
         (gMarioStates[0].flags &
          (MARIO_METAL_CAP | MARIO_VANISH_CAP)) == 0) {
         play_cap_music(
@@ -7255,7 +7224,10 @@ static void vr_special_moves_update_hammer_suit_music(
     }
 
     const u32 specialCaps = mario->flags & MARIO_SPECIAL_CAPS;
-    if (!configVrSpecialFireFlowerMusic) {
+    if (!configVrSpecialFireFlowerMusic || configVrAlternatePowerUpMusic) {
+        if (specialCaps == 0) {
+            stop_cap_music();
+        }
         sVrHammerSuitMusicTimer--;
         return;
     }
@@ -7454,9 +7426,7 @@ bool vr_special_moves_grant_sonic_shoes(void) {
         return false;
     }
 
-    vr_special_moves_reset_power();
-    vr_special_moves_reset_hammer_suit();
-    vr_special_moves_reset_sonic_shoes();
+    vr_special_moves_replace_powerup();
     sVrSonicShoesMusicFadeTimer = 0;
     sVrSonicShoesPowered = true;
     sVrSonicShoesTimer = VR_SONIC_SHOES_DURATION_FRAMES;
@@ -10390,11 +10360,131 @@ static bool vr_special_moves_update_hammer_hand(
     return sVrHammerChargeObject != NULL;
 }
 
+void vr_hand_interaction_release_custom_music(void) {
+    if (sVrAlternatePowerUpMusicPlaying || sVrSonicShoesMusicLowered) {
+        if (sVrAlternatePowerUpMusic != NULL) audio_stream_stop(sVrAlternatePowerUpMusic);
+        if (sVrSonicShoesMusic != NULL) audio_stream_stop(sVrSonicShoesMusic);
+        sVrAlternatePowerUpMusicPlaying = false;
+        sVrSonicShoesMusicLowered = false;
+        sVrSonicShoesMusicFadeTimer = 0;
+        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 1.0f);
+    }
+}
+
+static void vr_special_moves_update_alternate_music(struct MarioState* mario) {
+    // Big Hands has no separate native cap flag or Fire/Hammer music timer.
+    // Keep its regular theme in the same sequence path as those power-ups.
+    // Sonic Shoes deliberately keeps its own streamed track in either mode.
+    if (sVrBigHandsPowered && (mario->flags & MARIO_SPECIAL_CAPS) == 0 &&
+        !vr_hand_interaction_action_is_death(mario->action)) {
+        if (configVrSpecialFireFlowerMusic && !configVrAlternatePowerUpMusic) {
+            if (sVrBigHandsTimer > 60) {
+                play_cap_music(SEQUENCE_ARGS(4, gLevelValues.wingCapSequence));
+            } else if (sVrBigHandsTimer == 60) {
+                fadeout_cap_music();
+            } else if (sVrBigHandsTimer == 0) {
+                stop_cap_music();
+            }
+        } else {
+            stop_cap_music();
+        }
+    }
+    if (!configVrAlternatePowerUpMusic && !sVrAlternatePowerUpMusicPlaying &&
+        !sVrSonicShoesPowered && !sVrSonicShoesMusicLowered) {
+        return;
+    }
+    const bool specialCap = (mario->flags & MARIO_SPECIAL_CAPS) != 0;
+    const bool wanted = configVrSpecialFireFlowerMusic &&
+        configVrAlternatePowerUpMusic && !specialCap &&
+        !vr_hand_interaction_action_is_death(mario->action) &&
+        (sVrFireFlowerPowered || sVrHammerSuitPowered ||
+         vr_special_moves_big_hands_active());
+
+    if ((!configVrSpecialFireFlowerMusic ||
+         specialCap || vr_hand_interaction_action_is_death(mario->action)) &&
+        sVrSonicShoesMusicLowered) {
+        if (sVrSonicShoesMusic != NULL) {
+            audio_stream_stop(sVrSonicShoesMusic);
+        }
+        sVrSonicShoesMusicFadeTimer = 0;
+        sVrSonicShoesMusicLowered = false;
+        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 1.0f);
+    }
+    if (wanted && !sVrAlternatePowerUpMusicLoadAttempted) {
+        char path[SYS_MAX_PATH];
+        snprintf(path, sizeof(path), "%s/sonic_shoes/alternate_power_up.mp3",
+                 sys_resource_path());
+        sVrAlternatePowerUpMusicLoadAttempted = true;
+        sVrAlternatePowerUpMusic = audio_stream_load_path(path);
+    }
+    if (wanted && sVrAlternatePowerUpMusic != NULL) {
+        if (!sVrAlternatePowerUpMusicPlaying) {
+            stop_cap_music();
+            audio_stream_set_volume_channel(sVrAlternatePowerUpMusic,
+                                            MOD_AUDIO_CHANNEL_MUSIC);
+            audio_stream_set_looping(sVrAlternatePowerUpMusic, true);
+            audio_stream_play(sVrAlternatePowerUpMusic, true, 2.0f);
+            sVrAlternatePowerUpMusicPlaying = true;
+        }
+        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 0.0f);
+    } else if (sVrAlternatePowerUpMusicPlaying) {
+        audio_stream_stop(sVrAlternatePowerUpMusic);
+        sVrAlternatePowerUpMusicPlaying = false;
+        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 1.0f);
+    }
+    // Restore the Shoes theme when switching back during an active pickup.
+    if (configVrSpecialFireFlowerMusic &&
+        sVrSonicShoesPowered && !specialCap && !sVrSonicShoesMusicLowered &&
+        !vr_hand_interaction_action_is_death(mario->action) &&
+        sVrSonicShoesMusic != NULL) {
+        audio_stream_play(sVrSonicShoesMusic, true, 1.0f);
+        sVrSonicShoesMusicLowered = true;
+    }
+}
+
 void vr_hand_interaction_update(struct MarioState* mario) {
     // Remote Mario states run through the same interaction function. They
     // must not reset the local player's tracked fist state.
     if (mario == NULL || mario->playerIndex != 0) {
         return;
+    }
+
+    const bool deathAction =
+        vr_hand_interaction_action_is_death(mario->action);
+    if (deathAction) {
+        if (!sVrDeathResetActive) {
+            struct Object* physicalPole = sVrPhysicalClimbPole;
+            if (sVrTrackedHeldObject != NULL &&
+                mario->heldObj == sVrTrackedHeldObject) {
+                // Force the normal native drop bookkeeping before clearing
+                // the tracked grip. The release guard is bypassed only for
+                // this death transition; no throw or action change occurs.
+                sVrTrackedReleaseInProgress = true;
+                mario_drop_held_object(mario);
+                sVrTrackedReleaseInProgress = false;
+            }
+            if (mario->usedObj == physicalPole) {
+                mario->usedObj = NULL;
+            }
+            if (mario->interactObj == physicalPole) {
+                mario->interactObj = NULL;
+            }
+            vr_hand_interaction_clear_tracked_hold();
+            vr_hand_interaction_clear_hoot_hold();
+            vr_hand_interaction_clear_player_anchor();
+            vr_hand_interaction_reset();
+            // Restore Mario's native interaction cylinder immediately and
+            // invalidate every room-scale/controller pose cache. Otherwise
+            // a death during a tree grab leaves the next life with the old
+            // climb offset and hands rendered at the stale world pose.
+            vr_hand_interaction_update_headset_collider(mario);
+            vr_reset_first_person_calibration();
+            sVrDeathResetActive = true;
+        } else {
+            vr_hand_interaction_update_headset_collider(mario);
+        }
+    } else {
+        sVrDeathResetActive = false;
     }
 
     vr_special_moves_update_sonic_shoes_music_fade();
@@ -10506,9 +10596,15 @@ void vr_hand_interaction_update(struct MarioState* mario) {
         --sVrSonicShoesTimer == 0) {
         vr_special_moves_reset_sonic_shoes();
     }
+    vr_special_moves_update_alternate_music(mario);
     vr_special_moves_update_rasengan_impact(mario);
     vr_special_moves_try_quick_fireball(mario);
     vr_hand_interaction_apply_carry_speed(mario);
+
+    if (deathAction) {
+        sVrInteractionTrackingActive = false;
+        return;
+    }
 
     const bool headsetTrackingAvailable =
         vr_is_active() &&
@@ -10722,6 +10818,12 @@ void vr_hand_interaction_update(struct MarioState* mario) {
             controllerAvailable,
             &state
         );
+        if (!gripWasPressed && sVrGripPressed[hand]) {
+            sVrTerrainGripStart[hand] = gGlobalTimer;
+        }
+        const bool terrainGrabWindow = sVrGripPressed[hand] &&
+            (u32)(gGlobalTimer - sVrTerrainGripStart[hand]) <
+                VR_TERRAIN_GRAB_WINDOW_FRAMES;
 
         Vec3f position;
         Vec3f reachPosition;
@@ -11000,7 +11102,7 @@ void vr_hand_interaction_update(struct MarioState* mario) {
                         hand,
                         climbHandPosition,
                         climbAnchorPosition,
-                        !gripWasPressed
+                        terrainGrabWindow
                     );
             }
             if (!interactionStarted &&
@@ -11043,7 +11145,7 @@ void vr_hand_interaction_update(struct MarioState* mario) {
                         climbPreviousHandPosition,
                         climbPreviousHandPositionValid,
                         climbAnchorPosition,
-                        !gripWasPressed
+                        terrainGrabWindow
                     );
             }
             if (!interactionStarted &&
@@ -11209,8 +11311,6 @@ void vr_hand_interaction_update(struct MarioState* mario) {
         );
     }
 }
-static bool sVrBigHandsPowered = false;
-static u16 sVrBigHandsTimer = 0;
 static s16 sVrBigHandsLevel = -1;
 static s16 sVrBigHandsArea = -1;
 static u32 sVrBigHandsStartFrame = 0;
@@ -11222,6 +11322,12 @@ static struct ModAudio* sVrBigHandsGrowSound = NULL;
 static struct ModAudio* sVrBigHandsShrinkSound = NULL;
 
 void vr_hand_interaction_audio_shutdown(void) {
+    sVrAlternatePowerUpMusic = NULL;
+    sVrAlternatePowerUpMusicLoadAttempted = false;
+    if (sVrAlternatePowerUpMusicPlaying) {
+        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 1.0f);
+        sVrAlternatePowerUpMusicPlaying = false;
+    }
     // The custom audio pool owns these streams. Drop every cached handle
     // before pool teardown so subsequent ticks and sessions cannot reuse it.
     sVrSonicShoesMusic = NULL;
@@ -11235,6 +11341,10 @@ void vr_hand_interaction_audio_shutdown(void) {
 }
 
 static void vr_special_moves_reset_big_hands(void) {
+    if (sVrBigHandsPowered &&
+        (gMarioStates[0].flags & MARIO_SPECIAL_CAPS) == 0) {
+        stop_cap_music();
+    }
     sVrBigHandsPowered = false;
     sVrBigHandsTimer = 0;
     sVrBigHandsLevel = -1;
@@ -11357,10 +11467,7 @@ bool vr_special_moves_grant_big_hands(void) {
         return false;
     }
 
-    vr_special_moves_reset_power();
-    vr_special_moves_reset_hammer_suit();
-    vr_special_moves_reset_sonic_shoes();
-    vr_special_moves_reset_big_hands();
+    vr_special_moves_replace_powerup();
     sVrBigHandsPowered = true;
     sVrBigHandsTimer = VR_BIG_HANDS_DURATION_FRAMES;
     sVrBigHandsLevel = gCurrLevelNum;

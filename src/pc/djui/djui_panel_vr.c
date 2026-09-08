@@ -5,6 +5,7 @@
 #include "djui_panel.h"
 #include "djui_panel_menu.h"
 #include "djui_flow_layout.h"
+#include "djui_palette_colors.h"
 
 #include "pc/configfile.h"
 #include "pc/controller/controller_api.h"
@@ -14,6 +15,8 @@
 #include "data/dynos.c.h"
 #include "game/rendering_graph_node.h"
 #include "game/vr_hand_interaction.h"
+#include "game/vr_speedrun.h"
+#include "pc/fs/fs.h"
 #include "level_table.h"
 
 static bool sVrMode = false;
@@ -134,7 +137,8 @@ static unsigned int* sVrBindingTargets[] = {
     &configVrLBinding,
     &configVrRBinding,
     &configVrPauseBinding,
-    &configVrSpecialBinding
+    &configVrSpecialBinding,
+    &configVrSplitBinding
 };
 
 static const char* sVrBindingLabels[] = {
@@ -144,7 +148,8 @@ static const char* sVrBindingLabels[] = {
     "L Button",
     "R Button",
     "Pause",
-    "Special Button"
+    "Special Button",
+    "Timer Start / Split"
 };
 
 static struct DjuiButton* sVrBindingCaptureButton = NULL;
@@ -335,7 +340,7 @@ static void djui_panel_vr_camera_defaults(struct DjuiBase* caller) {
     configVrFacingSource = VR_FACING_SOURCE_HEADSET;
     configVrMovementCalibration = 50;
     configVrFov = 100;
-    configVrBrightness = 100;
+    configVrBrightness = VR_BRIGHTNESS_DEFAULT;
 
     for (unsigned int character = 0;
          character < CT_MAX;
@@ -399,6 +404,7 @@ static void djui_panel_vr_controller_defaults(
         VR_CONTROLLER_BINDING_LEFT_STICK_CLICK;
     configVrSpecialBinding =
         VR_CONTROLLER_BINDING_LEFT_SECONDARY;
+    configVrSplitBinding = VR_CONTROLLER_BINDING_DISABLED;
 }
 
 static void djui_panel_vr_motion_control_defaults(
@@ -453,7 +459,7 @@ static void djui_panel_vr_hud_defaults(struct DjuiBase* caller) {
     (void)caller;
 
     configVrHudOpacity = 100;
-    configVrHudSpread = 120;
+    configVrHudSpread = 100;
     configVrMenuAnchor = VR_UI_ANCHOR_HEADSET;
     configVrHudAnchor = VR_UI_ANCHOR_HEADSET;
 }
@@ -481,6 +487,7 @@ static void djui_panel_vr_special_moves_defaults(
     configVrSpecialMovesEnabled = true;
     configVrSpecialFireFlower = true;
     configVrSpecialFireFlowerMusic = true;
+    configVrAlternatePowerUpMusic = false;
     configVrSpecialHammerSuit = true;
     configVrSpecialSonicShoes = true;
     configVrSonicShoesSpeed = VR_SONIC_SHOES_SPEED_DEFAULT;
@@ -501,6 +508,7 @@ static void djui_panel_vr_immersion_defaults(struct DjuiBase* caller) {
     configVrImmersiveCameraMotion = true;
     configVrImmersiveFaceStuck = true;
     configVrImmersiveCrushedScreen = true;
+    configVrCrossedTreeBillboards = true;
     configVrImmersiveCannonCone = true;
     configVrImmersive3dSound = true;
     configVrImmersiveLedgeCamera = true;
@@ -853,7 +861,8 @@ static void djui_panel_vr_controller_settings_create(
         &configVrLBinding,
         &configVrRBinding,
         &configVrPauseBinding,
-        &configVrSpecialBinding
+        &configVrSpecialBinding,
+        &configVrSplitBinding
     };
     for (unsigned int i = 0;
          i < sizeof(bindings) / sizeof(bindings[0]);
@@ -905,6 +914,7 @@ static void djui_panel_vr_controller_settings_create(
         djui_panel_vr_binding_create(body, 5);
 
         djui_panel_vr_binding_create(body, 6);
+        djui_panel_vr_binding_create(body, 7);
 
         struct DjuiButton* defaultsButton = djui_button_create(
             body,
@@ -1422,6 +1432,157 @@ static void djui_panel_vr_model_settings_create(struct DjuiBase* caller) {
     djui_panel_add(caller, panel, NULL);
 }
 
+static void djui_vr_timer_action(struct DjuiBase* caller) {
+    bool setupChanged = false;
+    switch (caller->tag) {
+        case 0: vr_speedrun_split(vr_speedrun_now()); break;
+        case 1: vr_speedrun_pause(vr_speedrun_now()); break;
+        case 2: vr_speedrun_reset(); break;
+        case 3: vr_speedrun_configure(configVrSpeedrunSegments); setupChanged = true; break;
+        case 4: setupChanged = vr_speedrun_load(fs_get_write_path("speedrun/setup.json")); break;
+        case 5: setupChanged = vr_speedrun_import_lss(fs_get_write_path("speedrun/run.lss")); break;
+        case 6: vr_speedrun_save(fs_get_write_path("speedrun/export.json")); break;
+    }
+    if (setupChanged) {
+        configVrSpeedrunSegments = vr_speedrun_total();
+        vr_speedrun_save_local();
+    }
+    djui_console_message_create(vr_speedrun_status(), CONSOLE_MESSAGE_INFO);
+}
+
+static void djui_vr_timer_help(struct DjuiBase* body, const char* message, f32 height) {
+    struct DjuiText* text = djui_text_create(body, message);
+    djui_base_set_size_type(&text->base, DJUI_SVT_RELATIVE, DJUI_SVT_ABSOLUTE);
+    djui_base_set_size(&text->base, 1, height);
+    djui_text_set_font_scale(text, 22);
+}
+
+static void djui_vr_timer_name_changed(struct DjuiBase* caller) {
+    struct DjuiInputbox* input = (struct DjuiInputbox*)caller;
+    vr_speedrun_set_name(caller->tag, input->buffer);
+}
+static void (*sVrNamesDestroy)(struct DjuiBase*);
+static void djui_vr_timer_names_destroy(struct DjuiBase* caller) {
+    if (!vr_speedrun_save_local())
+        djui_console_message_create(vr_speedrun_status(), CONSOLE_MESSAGE_INFO);
+    sVrNamesDestroy(caller);
+}
+static void djui_vr_timer_names_create(struct DjuiBase* caller) {
+    struct DjuiThreePanel* panel = djui_panel_menu_create("Name Your Splits", false);
+    struct DjuiBase* body = djui_three_panel_get_body(panel);
+    sVrNamesDestroy = panel->base.destroy;
+    panel->base.destroy = djui_vr_timer_names_destroy;
+    for (unsigned int i = 0; i < vr_speedrun_total(); ++i) {
+        char label[32];
+        snprintf(label, sizeof(label), "Split %u", i + 1);
+        struct DjuiRect* row = djui_rect_container_create(body, 32);
+        struct DjuiText* text = djui_text_create(&row->base, label);
+        djui_base_set_size_type(&text->base, DJUI_SVT_RELATIVE, DJUI_SVT_ABSOLUTE);
+        djui_base_set_size(&text->base, .22f, 32);
+        struct DjuiInputbox* input = djui_inputbox_create(&row->base, 49);
+        djui_base_set_size_type(&input->base, DJUI_SVT_RELATIVE, DJUI_SVT_ABSOLUTE);
+        djui_base_set_size(&input->base, .75f, 32);
+        djui_base_set_alignment(&input->base, DJUI_HALIGN_RIGHT, DJUI_VALIGN_TOP);
+        input->base.tag = i;
+        djui_inputbox_set_text(input, (char*)vr_speedrun_segment_name(i));
+        djui_interactable_hook_value_change(&input->base, djui_vr_timer_name_changed);
+    }
+    djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
+    djui_panel_add(caller, panel, NULL);
+}
+
+static void djui_vr_timer_color_selected(struct DjuiBase* caller) {
+    if (caller->tag < 0 || (u64)caller->tag >= sizeof(sPaletteQuickColors) / sizeof(sPaletteQuickColors[0])) return;
+    const struct DjuiPaletteQuickColor* color = &sPaletteQuickColors[caller->tag];
+    configVrSpeedrunColor = (color->r << 16) | (color->g << 8) | color->b;
+    djui_panel_menu_back(caller);
+}
+static void djui_vr_timer_colors_create(struct DjuiBase* caller) {
+    struct DjuiThreePanel* panel = djui_panel_menu_create("Timer Text Color", false);
+    struct DjuiBase* body = djui_three_panel_get_body(panel);
+    for (unsigned int i = 0; i < sizeof(sPaletteQuickColors) / sizeof(sPaletteQuickColors[0]); ++i) {
+        const struct DjuiPaletteQuickColor* color = &sPaletteQuickColors[i];
+        struct DjuiButton* button = djui_button_create(body, color->name, DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_color_selected);
+        button->base.tag = i;
+        struct DjuiRect* swatch = djui_rect_create(&button->rect->base);
+        djui_base_set_size(&swatch->base, 24, 24);
+        djui_base_set_alignment(&swatch->base, DJUI_HALIGN_RIGHT, DJUI_VALIGN_CENTER);
+        djui_base_set_location(&swatch->base, -8, 0);
+        djui_base_set_color(&swatch->base, color->r, color->g, color->b, 255);
+        djui_base_set_border_width(&swatch->base, 1);
+        djui_base_set_border_color(&swatch->base, 230, 230, 230, 255);
+    }
+    djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
+    djui_panel_add(caller, panel, NULL);
+}
+static void djui_vr_timer_files_create(struct DjuiBase* caller) {
+    struct DjuiThreePanel* panel = djui_panel_menu_create("Import / Export Setups", false);
+    struct DjuiBase* body = djui_three_panel_get_body(panel);
+    djui_vr_timer_help(body, "Optional: copy files into the speedrun folder beside mods and saves.", 60);
+    djui_vr_timer_help(body, "Load: use a copied setup.json. Import: use LiveSplit run.lss names and PB times. Both reset this run.", 80);
+    djui_vr_timer_help(body, "Export: save names and results to export.json for another device. Rename an old export before saving again.", 80);
+    const char* labels[] = {"Load Copied Setup (setup.json)", "Import LiveSplit File (run.lss)", "Export Setup and Results"};
+    for (unsigned int i = 0; i < 3; ++i) {
+        struct DjuiButton* button = djui_button_create(body, labels[i], DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_action);
+        button->base.tag = i + 4;
+    }
+    djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
+    djui_panel_add(caller, panel, NULL);
+}
+static void djui_vr_timer_history_create(struct DjuiBase* caller) {
+    struct DjuiThreePanel* panel = djui_panel_menu_create("All Split Results", false);
+    struct DjuiBase* body = djui_three_panel_get_body(panel);
+    for (unsigned int i = 0; i < vr_speedrun_total(); ++i) {
+        char line[100];
+        double actual = vr_speedrun_segment_time(i);
+        if (actual < 0) snprintf(line, sizeof(line), "%u. %s - not completed", i + 1, vr_speedrun_segment_name(i));
+        else snprintf(line, sizeof(line), "%u. %s - %.2f seconds", i + 1, vr_speedrun_segment_name(i), actual);
+        // A focusable read-only row lets controller users scroll every result.
+        struct DjuiButton* result = djui_button_create(body, line, DJUI_BUTTON_STYLE_NORMAL, NULL);
+        djui_base_set_size(&result->base, 1, 72);
+        djui_text_set_font_scale(result->text, 22);
+    }
+    djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
+    djui_panel_add(caller, panel, NULL);
+}
+static void djui_vr_timer_reset_viewer(UNUSED struct DjuiBase* caller) {
+    configVrSpeedrunX = 180;
+    configVrSpeedrunY = 20;
+    configVrSpeedrunScale = 100;
+    configVrSpeedrunHud = true;
+}
+static void djui_panel_vr_timer_create(struct DjuiBase* caller) {
+    fs_sys_mkdir(fs_get_write_path("speedrun"));
+    vr_speedrun_initialize(fs_get_write_path("speedrun/setup.json"), configVrSpeedrunSegments);
+    configVrSpeedrunSegments = vr_speedrun_total();
+    struct DjuiThreePanel* panel = djui_panel_menu_create("Speedrunning", false);
+    struct DjuiBase* body = djui_three_panel_get_body(panel);
+    configVrSpeedrunScale = djui_panel_vr_clamp_uint(configVrSpeedrunScale, 50, 200);
+    configVrSpeedrunX = djui_panel_vr_clamp_uint(configVrSpeedrunX, 0, 600);
+    configVrSpeedrunY = djui_panel_vr_clamp_uint(configVrSpeedrunY, 0, 210);
+    djui_vr_timer_help(body, "Choose your split count, then Confirm to apply it and reset the timer. Existing split names are kept.", 80);
+    djui_slider_create(body, "Split Count", &configVrSpeedrunSegments, 1, 120, NULL);
+    struct DjuiButton* confirm = djui_button_create(body, "Confirm", DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_action);
+    confirm->base.tag = 3;
+    djui_button_create(body, "Name Your Splits", DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_names_create);
+    djui_checkbox_create(body, "Show Timer and Splits", &configVrSpeedrunHud, NULL);
+    djui_checkbox_create(body, "Reveal Splits as You Go", &configVrSpeedrunProgressive, NULL);
+    djui_slider_create(body, "Viewer Size (%)", &configVrSpeedrunScale, 50, 200, NULL);
+    djui_slider_create(body, "Horizontal Position", &configVrSpeedrunX, 0, 600, NULL);
+    djui_slider_create(body, "Vertical Position", &configVrSpeedrunY, 0, 210, NULL);
+    djui_button_create(body, "Reset Viewer Position", DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_reset_viewer);
+    djui_button_create(body, "Text Color (Palette Colors)", DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_colors_create);
+    const char* actions[] = {"Start / Split", "Pause / Resume", "Reset Timer"};
+    for (unsigned int i = 0; i < 3; ++i) {
+        struct DjuiButton* button = djui_button_create(body, actions[i], DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_action);
+        button->base.tag = i;
+    }
+    djui_button_create(body, "All Split Results", DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_history_create);
+    djui_button_create(body, "Import / Export Setups", DJUI_BUTTON_STYLE_NORMAL, djui_vr_timer_files_create);
+    djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
+    djui_panel_add(caller, panel, NULL);
+}
+
 static void djui_panel_vr_hud_settings_create(struct DjuiBase* caller) {
     if (configVrHudOpacity > 100) {
         configVrHudOpacity = 100;
@@ -1780,6 +1941,13 @@ static void djui_panel_vr_special_moves_create(
             &configVrSpecialFireFlowerMusic,
             NULL
         );
+
+        djui_checkbox_create(
+            body,
+            "Alternate Power-Up Music",
+            &configVrAlternatePowerUpMusic,
+            NULL
+        );
         configVrSonicShoesSpeed = djui_panel_vr_clamp_uint(
             configVrSonicShoesSpeed,
             VR_SONIC_SHOES_SPEED_MIN,
@@ -1977,6 +2145,9 @@ static void djui_panel_vr_immersion_create(struct DjuiBase* caller) {
         djui_panel_menu_create("Immersion", false);
     struct DjuiBase* body = djui_three_panel_get_body(panel);
 
+    djui_checkbox_create(body, "Crossed Tree Billboards",
+                         &configVrCrossedTreeBillboards, NULL);
+
     djui_button_create(
         body,
         "Camera & Comfort",
@@ -2128,7 +2299,7 @@ static void djui_panel_vr_tutorial_water(
     djui_panel_vr_tutorial_page(
         caller,
         "Swimming, Flying & Caps",
-        "Swim and fly in the headset's look direction, including straight up or down. Wing Cap flight retains normal momentum unless Free Fly is enabled. Grab removable caps with Trigger near the cap, throw them like physics objects, or release one over Mario's head to put it back on. Shaking Hat Gives Wing Cap requires Grab Cap at Any Time. Underwater head and hand colliders collect supported items."
+        "Swim and fly in the headset's look direction. Wing Cap flight retains normal momentum unless Free Fly is enabled. With Grab Cap at Any Time enabled, hold Grip and Trigger near your head to take your hat; either button can be pressed first. Release to throw, or return it over your head. Shaking Hat Gives Wing Cap requires this option. A red X on the life icon marks a missing hat."
     );
 }
 
@@ -2202,6 +2373,21 @@ static void djui_panel_vr_tutorial_rasen_shuriken(
     );
 }
 
+static void djui_panel_vr_tutorial_big_hands(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Big Hands",
+        "Collect Big Hands from enabled special item boxes or the Spawn Menu. The enlarged hands extend your reach: hold Grip at a surface to attach, then pull yourself along it. Alternate hands to climb; each hand can hold a different surface, tree, or hangable. Grip also grabs supported enemies and objects at the visible hand. Make a fist and swing to punch at that same extended reach. Release Grip to let go.");
+}
+
+static void djui_panel_vr_tutorial_speedrun(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Speedrunning",
+        "Open VR > Speedrunning. Choose Split Count and Confirm, then Name Your Splits. Enable Show Timer and Splits and adjust position, size, and text color. Reveal Splits as You Go adds each next row after a split. Bind Timer Start / Split in Controller Bindings: first press starts, later presses split. Import / Export Setups explains copying LiveSplit run.lss files and portable setups between PC and Quest.");
+}
+
+static void djui_panel_vr_tutorial_visuals(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Visuals & Character Select",
+        "Special > Filters includes Cell Shaded, Super Mario Land, Game Boy, and Virtual Boy. Display > Effects offers optional normal maps with separate strength and gloss controls. Immersion's cross-tree option keeps tree billboards fixed in a cross shape. Character Select opens its preview and controls together on a floating theater panel. Close it to return to the regular menus.");
+}
+
 static void djui_panel_vr_tutorial_moves(
     struct DjuiBase* caller
 ) {
@@ -2215,6 +2401,8 @@ static void djui_panel_vr_tutorial_moves(
         djui_panel_vr_tutorial_hammer_suit);
     djui_button_create(body, "Sonic Shoes", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_tutorial_sonic_shoes);
+    djui_button_create(body, "Big Hands", DJUI_BUTTON_STYLE_NORMAL,
+        djui_panel_vr_tutorial_big_hands);
     djui_button_create(body, "Rasengan", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_tutorial_rasengan);
     djui_button_create(body, "Rasen-Shuriken", DJUI_BUTTON_STYLE_NORMAL,
@@ -2236,6 +2424,8 @@ static void djui_panel_vr_tutorial_create(struct DjuiBase* caller) {
     djui_button_create(body, "Objects, Bosses & Bowser", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_bowser);
     djui_button_create(body, "Menus, HUD & Multiplayer", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_ui);
     djui_button_create(body, "Special Moves", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_moves);
+    djui_button_create(body, "Speedrunning", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_speedrun);
+    djui_button_create(body, "Visuals & Character Select", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_visuals);
     djui_button_create(body, "Common Bugs & Fixes", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_troubleshooting);
     djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
     djui_panel_add(caller, panel, NULL);
@@ -2289,7 +2479,8 @@ static void djui_panel_vr_filters_create(struct DjuiBase* caller) {
         "Off",
         "Virtual Boy",
         "Game Boy",
-        "Super Mario Land"
+        "Super Mario Land",
+        "Cell Shaded"
     };
 
     djui_selectionbox_create(
@@ -2366,6 +2557,13 @@ void djui_panel_vr_create(struct DjuiBase* caller) {
             "Display",
             DJUI_BUTTON_STYLE_NORMAL,
             djui_panel_vr_display_create
+        );
+
+        djui_button_create(
+            body,
+            "Speedrunning",
+            DJUI_BUTTON_STYLE_NORMAL,
+            djui_panel_vr_timer_create
         );
 
         djui_button_create(

@@ -1,6 +1,8 @@
 #ifndef DJUI_HUD_UTILS_H
 #define DJUI_HUD_UTILS_H
 
+void djui_hud_set_character_theater(bool enabled);
+
 // Common pivot values for rotation
 #define ROTATION_PIVOT_X_LEFT       0.0
 #define ROTATION_PIVOT_X_CENTER     0.5

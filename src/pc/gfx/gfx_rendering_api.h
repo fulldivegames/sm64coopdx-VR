@@ -34,6 +34,9 @@ struct GfxRenderingAPI {
     const char* (*get_name)(void);
     void (*shutdown)(void);
     void (*on_texture_uploaded)(void);
+    void (*begin_menu_target)(void);
+    void (*end_menu_target)(const float *projection);
+    void (*cell_shaded)(void);
 };
 
 #endif

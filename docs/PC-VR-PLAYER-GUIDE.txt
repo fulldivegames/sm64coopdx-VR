@@ -1,8 +1,10 @@
-SM64 CO-OP DX VR v0.8.9 - LARGE-MAP PERFORMANCE UPDATE
+SM64 CO-OP DX VR v0.9 - VISUALS, SPEEDRUNNING AND VR IMPROVEMENTS
 
 Extract the complete ZIP into its own folder and launch SM64-Co-Op-DX-VR.exe.
 Keep all included DLLs and resource folders beside the executable.
 You must supply your own legally obtained Super Mario 64 US ROM.
+The game can reuse your previously supplied ROM from its user-data folder
+(normally AppData/Roaming/sm64coopdx), so updates do not require another copy.
 
 Connect your headset using your OpenXR runtime. SteamVR supports Steam Link
 and ALVR. Enable VR in the game's settings. Controller bindings are available
@@ -20,3 +22,26 @@ coopdx_updater.exe is intentionally not included. Do not mix this package
 with a regular flat-screen Co-op DX installation.
 
 Your existing save data and settings are not included in this package.
+
+CURRENT FEATURES
+The in-game VR Tutorial covers Big Hands, speedrunning, visual options and caps.
+Big Hands uses the enlarged hands for grabbing and physical punches. Hold Grip
+at a surface and pull to climb; alternate hands between supported surfaces,
+trees and hangables. Release Grip to detach. Special powers are disabled in
+Regular Public Lobbies.
+
+VR > Speedrunning contains timer setup, split names, size, position and color.
+Choose Split Count and Confirm. Show Timer and Splits enables the viewer;
+Reveal Splits as You Go adds the next row after each split. Assign Timer Start /
+Split in Controller Bindings. See VR-SPEEDRUN.txt for PC/Quest setup imports.
+
+Special > Filters includes Cell Shaded and the grayscale Super Mario Land
+filter. Character Select uses a floating theater panel for its menu and preview.
+Immersion includes crossed, stationary tree billboards. With Grab Cap at Any
+Time enabled, hold Grip and Trigger near your head to remove the hat. Either
+button can be pressed first. The life icon shows a red X when the hat is absent.
+
+PC keyboard dictation runs locally using the included speech folder. Press Mic,
+speak, then press Mic again to finish and transcribe; keep the keyboard open
+while it processes. Closing the keyboard cancels. Set your headset microphone
+as the default recording device. See speech/PC-DICTATION.txt for details.

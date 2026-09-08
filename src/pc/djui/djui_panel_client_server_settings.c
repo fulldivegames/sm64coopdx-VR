@@ -27,6 +27,7 @@ static void djui_panel_client_character_select(UNUSED struct DjuiBase* caller) {
     }
     game_unpause();
     djui_panel_shutdown();
+    smlua_character_menu_return_to_pause();
     queue_chat_command("/char-select menu");
 }
 
@@ -47,6 +48,9 @@ void djui_panel_client_server_settings_create(struct DjuiBase* caller) {
         if (smlua_chat_command_exists("wpets")) {
             djui_button_create(body, "Pets", DJUI_BUTTON_STYLE_NORMAL,
                                djui_panel_client_widdle_pets);
+        }
+        if (smlua_chat_command_exists("char-select")) {
+            djui_button_create(body, "Character Select", DJUI_BUTTON_STYLE_NORMAL, djui_panel_client_character_select);
         }
         sPlayerInteractions = gServerSettings.playerInteractions;
         char* iChoices[3] = { DLANG(HOST_SETTINGS, NONSOLID), DLANG(HOST_SETTINGS, SOLID), DLANG(HOST_SETTINGS, FRIENDLY_FIRE) };
@@ -101,9 +105,6 @@ void djui_panel_client_server_settings_create(struct DjuiBase* caller) {
             djui_base_set_enabled(&inputbox1->base, false);
         }
 
-        if (smlua_chat_command_exists("char-select")) {
-            djui_button_create(body, "Character Select", DJUI_BUTTON_STYLE_NORMAL, djui_panel_client_character_select);
-        }
         djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
     }
     djui_panel_add(caller, panel, NULL);

@@ -10,6 +10,8 @@ struct Object;
 
 void vr_hand_interaction_update(struct MarioState* mario);
 void vr_hand_interaction_audio_shutdown(void);
+void vr_hand_interaction_release_custom_music(void);
+void vr_special_moves_replace_powerup(void);
 bool vr_hand_interaction_should_hide_body(struct MarioState* mario);
 void vr_hand_interaction_update_roomscale_body(
     struct MarioState* mario

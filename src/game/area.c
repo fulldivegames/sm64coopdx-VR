@@ -24,6 +24,7 @@
 #include "gfx_dimensions.h"
 #include "game/ingame_menu.h"
 #include "pc/network/network.h"
+#include "pc/configfile.h"
 #include "pc/lua/smlua_hooks.h"
 #include "pc/djui/djui.h"
 #include "pc/djui/djui_hud_utils.h"
@@ -450,6 +451,11 @@ void render_game(void) {
     dynos_update_gfx();
     if (gCurrentArea != NULL && !gWarpTransition.pauseRendering) {
         geo_process_root(gCurrentArea->root, gViewportOverride, gViewportClip, gFBSetColor);
+
+        if (configVrColorFilter == VR_COLOR_FILTER_CELL_SHADED &&
+            !vr_character_menu_capture_active()) {
+            gSPCellShaded(gDisplayListHead++);
+        }
 
         gSPViewport(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(&gViewportFullscreen));
 

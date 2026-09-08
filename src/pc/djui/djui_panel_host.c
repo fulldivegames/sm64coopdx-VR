@@ -308,6 +308,10 @@ void djui_panel_host_create(struct DjuiBase* caller) {
             djui_button_create(body, "Pets", DJUI_BUTTON_STYLE_NORMAL,
                                djui_panel_host_widdle_pets);
         }
+        if (smlua_chat_command_exists("char-select")) {
+            djui_button_create(body, "Character Select", DJUI_BUTTON_STYLE_NORMAL,
+                               djui_panel_host_character_select);
+        }
         djui_button_create(body, DLANG(HOST, SETTINGS), DJUI_BUTTON_STYLE_NORMAL, djui_panel_host_settings_create);
         djui_button_create(body, DLANG(HOST, MODS), DJUI_BUTTON_STYLE_NORMAL, djui_panel_host_mods_create);
         struct DjuiRect* rect3 = djui_rect_container_create(body, 64);

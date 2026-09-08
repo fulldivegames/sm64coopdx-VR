@@ -5,6 +5,8 @@
 
 #include "pc/configfile.h"
 #include "pc/vr/vr.h"
+#include "game/vr_speedrun.h"
+#include "pc/fs/fs.h"
 // The DJUI menu reads the same N64 pad passed to this backend while an
 // interactable panel is active. Keep this menu-only flag separate from the
 // gameplay Jump binding so rebinding Jump cannot remove the A action.
@@ -41,8 +43,10 @@ static uint32_t sVrPhysicalCrouchTrackingGeneration = 0;
 // must not immediately rebind another action when the user opens a row.
 static bool sVrPreviousBindingDown[VR_CONTROLLER_BINDING_COUNT] = { false };
 static u32 sVrPendingRawKey = VK_INVALID;
+static bool sVrSplitDown = false;
 
 static void controller_vr_reset_rawkey_state(void) {
+    sVrSplitDown = false;
     for (unsigned int binding = 0;
          binding < VR_CONTROLLER_BINDING_COUNT;
          binding++) {
@@ -455,6 +459,15 @@ static void controller_vr_read(OSContPad* pad) {
         &right
     );
 
+    const bool splitDown = controller_vr_binding_down(configVrSplitBinding,
+        leftAvailable, &left, rightAvailable, &right);
+    if (configVrSpeedrunHud && !gInteractableOverridePad && splitDown && !sVrSplitDown) {
+        vr_speedrun_initialize(fs_get_write_path("speedrun/setup.json"), configVrSpeedrunSegments);
+        vr_speedrun_split(vr_speedrun_now());
+    }
+    // Update while in menus too, preventing the binding-capture press from
+    // starting a run when the menu closes with the button still held.
+    sVrSplitDown = splitDown;
     controller_vr_update_rawkey_state(
         leftAvailable,
         &left,

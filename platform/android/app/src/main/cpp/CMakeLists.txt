@@ -117,6 +117,7 @@ add_library(
     ${SM64_ROOT}/data/dynos_c.cpp
     ${SM64_ROOT}/data/dynos_warps.cpp
     ${SM64_ROOT}/src/engine/lighting_engine.cpp
+    ${SM64_ROOT}/src/game/vr_speedrun.cpp
     ${SM64_ROOT}/src/pc/cliopts.c
     ${SM64_ROOT}/src/pc/chat_commands.c
     ${SM64_ROOT}/src/pc/configfile.c

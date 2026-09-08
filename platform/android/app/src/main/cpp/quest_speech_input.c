@@ -12,7 +12,7 @@ static char sSpeechResult[512];
 static bool sSpeechResultReady;
 static bool sSpeechListening;
 
-bool quest_speech_recognition_start(void) {
+static bool quest_speech_call(const char *methodName, bool starting, bool cancelling) {
     ANativeActivity *activity = quest_android_get_activity();
     if (activity == NULL || activity->vm == NULL || activity->clazz == NULL) return false;
     JNIEnv *env = NULL;
@@ -26,11 +26,15 @@ bool quest_speech_recognition_start(void) {
     }
     jclass clazz = (*env)->GetObjectClass(env, activity->clazz);
     jmethodID method = clazz == NULL ? NULL : (*env)->GetMethodID(
-        env, clazz, "startSpeechRecognitionFromNative", "()V");
+        env, clazz, methodName, "()V");
     bool started = method != NULL;
     if (started) {
         pthread_mutex_lock(&sSpeechMutex);
-        sSpeechListening = true;
+        if (starting || cancelling) {
+            sSpeechListening = starting;
+            sSpeechResultReady = false;
+            sSpeechResult[0] = '\0';
+        }
         pthread_mutex_unlock(&sSpeechMutex);
         (*env)->CallVoidMethod(env, activity->clazz, method);
         if ((*env)->ExceptionCheck(env)) {
@@ -44,6 +48,15 @@ bool quest_speech_recognition_start(void) {
     if (clazz != NULL) (*env)->DeleteLocalRef(env, clazz);
     if (detach) (*activity->vm)->DetachCurrentThread(activity->vm);
     return started;
+}
+bool quest_speech_recognition_start(void) {
+    return quest_speech_call("startSpeechRecognitionFromNative", true, false);
+}
+void quest_speech_recognition_stop(void) {
+    quest_speech_call("stopSpeechRecognitionFromNative", false, false);
+}
+void quest_speech_recognition_cancel(void) {
+    quest_speech_call("cancelSpeechRecognitionFromNative", false, true);
 }
 
 bool quest_speech_recognition_poll(char *text, size_t textSize) {
