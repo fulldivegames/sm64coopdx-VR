@@ -14,11 +14,22 @@
 </p>
 
 > [!IMPORTANT]
-> The current public release is **v0.8.6**. This is an active fan project: neither the PC nor Quest standalone edition has been tested across every level, headset, multiplayer situation, ROM hack, or mod combination. Occasional crashes or issues might occur.
+> The current public release is **v0.9**. This is an active fan project: neither the PC nor Quest standalone edition has been tested across every level, headset, multiplayer situation, ROM hack, or mod combination. Occasional crashes or issues might occur.
 
 SM64 Co-Op DX VR currently targets 64-bit Windows, OpenGL, and OpenXR. It keeps the original game's flat-screen mode and multiplayer foundation while adding native stereoscopic rendering, 6DoF tracking, VR-aware cameras, remappable motion-controller input, physical interactions, comfort options, and extensive calibration settings.
 
 Solo hosting has received the most testing. Online co-op, different OpenXR runtimes, ROM hacks, Lua mods, character models, and texture packs may work, but compatibility still varies.
+
+### New in v0.9 — Visuals, Speedrunning and VR Improvements
+
+- Cell Shaded and expanded grayscale filters, plus stationary crossed trees.
+- Improved Character Select theater rendering, menu text and modded health bars.
+- VR Speedrunning menu with named splits, HUD controls, progressive reveal and LiveSplit split-file imports. Longer split names fit without the old 18-character cutoff.
+- Improved Big Hands climbing and contacts, treasure-chest interaction, cap grabbing and power-up music behavior.
+- PC offline Whisper dictation with faster processing and press-again-to-finish controls; Quest retains Android speech recognition. Keep the complete PC speech folder. Wine/Proton speech is not yet verified.
+- Updated tutorial; retained large-map renderer improvements, optional normal maps and VR-specific updating.
+
+See the [v0.9 release notes](https://github.com/fulldivegames/sm64coopdx-VR-Physics-based/releases/tag/v0.9). PC can reuse a previously supplied ROM from its saved-data folder; no ROM is included.
 
 ### Multiplayer and public-lobby safety
 
