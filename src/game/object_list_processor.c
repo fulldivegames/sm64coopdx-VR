@@ -726,6 +726,9 @@ void update_objects(UNUSED s32 unused) {
     // behind the player's real position (most obvious when a Goomba walks
     // underneath the headset).
     vr_hand_interaction_update_roomscale_body(gMarioState);
+    // Water/flight interaction contacts must use this tick's HMD position,
+    // not the cylinder left behind by Mario's previous late-frame update.
+    vr_hand_interaction_update_headset_collider(gMarioState);
 
     // Detect which objects are intersecting
     cycleCounts[3] = get_clock_difference(cycleCounts[0]);
@@ -734,6 +737,10 @@ void update_objects(UNUSED s32 unused) {
     // Update all other objects that haven't been updated yet
     cycleCounts[4] = get_clock_difference(cycleCounts[0]);
     update_non_terrain_objects();
+
+    // Grab anchors run after Mario. Finish the VR camera sample only once all
+    // holders have moved, before the level updates Lakitu's camera target.
+    vr_refresh_enemy_camera_anchor();
 
     // Unload any objects that have been deactivated
     cycleCounts[5] = get_clock_difference(cycleCounts[0]);

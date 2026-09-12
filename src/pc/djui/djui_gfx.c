@@ -165,7 +165,12 @@ void djui_gfx_render_texture_tile(const Texture* texture, u32 w, u32 h, u8 fmt, 
 }
 
 void djui_gfx_render_texture_font_begin() {
-    gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_CULL_BOTH);
+    gDPSetAlphaCompare(gDisplayListHead++, G_AC_NONE);
+    gDPSetTexturePersp(gDisplayListHead++, G_TP_NONE);
+    gDPSetTextureLUT(gDisplayListHead++, G_TT_NONE);
+    gDPSetTextureLOD(gDisplayListHead++, G_TL_TILE);
+    gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_CULL_BOTH |
+        G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_ZBUFFER);
     gDPSetCombineMode(gDisplayListHead++, G_CC_FADEA, G_CC_MODULATERGBA_PRIM2);
     gDPSetCycleType(gDisplayListHead++, G_CYC_2CYCLE);
     gDPSetRenderMode(gDisplayListHead++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
@@ -199,7 +204,12 @@ void djui_gfx_render_texture_font_end() {
 }
 
 void djui_gfx_render_texture_tile_font_begin() {
-    gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_CULL_BOTH);
+    gDPSetAlphaCompare(gDisplayListHead++, G_AC_NONE);
+    gDPSetTexturePersp(gDisplayListHead++, G_TP_NONE);
+    gDPSetTextureLUT(gDisplayListHead++, G_TT_NONE);
+    gDPSetTextureLOD(gDisplayListHead++, G_TL_TILE);
+    gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_CULL_BOTH |
+        G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_ZBUFFER);
     gDPSetCombineMode(gDisplayListHead++, G_CC_FADEA, G_CC_MODULATERGBA_PRIM2);
     gDPSetCycleType(gDisplayListHead++, G_CYC_2CYCLE);
     gDPSetRenderMode(gDisplayListHead++, G_RM_XLU_SURF, G_RM_XLU_SURF2);

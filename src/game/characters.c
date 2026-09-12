@@ -12,6 +12,7 @@
 #include "audio/external.h"
 #include "engine/graph_node.h"
 #include "pc/lua/smlua.h"
+#include "pc/vr/vr.h"
 
 extern Gfx mario_cap_seg3_dl_03022F48[];
 extern Gfx mario_cap_m_logo_decal[];
@@ -437,6 +438,21 @@ static s32 get_character_sound(struct MarioState* m, enum CharacterSound charact
 }
 
 static void play_character_sound_internal(struct MarioState *m, enum CharacterSound characterSound, u32 offset, u32 flags) {
+    // Silence only the local VR punch voice off the ground. Preserve attacks,
+    // collision sounds, other character voices, and the action's sound latch.
+    if (m && m->playerIndex == 0 && vr_is_active() &&
+        // The native jump kick intentionally shares the punch-HOO sample.
+        // Restore only its latched action cue, not incidental airborne punches.
+        !(m->action == ACT_JUMP_KICK && characterSound == CHAR_SOUND_PUNCH_HOO &&
+          (flags & MARIO_ACTION_SOUND_PLAYED)) &&
+        (characterSound == CHAR_SOUND_PUNCH_YAH || characterSound == CHAR_SOUND_PUNCH_WAH ||
+         characterSound == CHAR_SOUND_PUNCH_HOO) &&
+        ((m->input & INPUT_A_PRESSED) || vr_jump_gesture_has_priority() ||
+         (m->action & (ACT_FLAG_AIR | ACT_FLAG_SWIMMING | ACT_FLAG_ON_POLE)) ||
+         !m->floor || m->pos[1] > m->floorHeight + 5.0f)) {
+        m->flags |= flags;
+        return;
+    }
     if (m != NULL && (m->flags & flags) == 0) {
         s32 sound = get_character_sound(m, characterSound);
         if (sound != 0) {

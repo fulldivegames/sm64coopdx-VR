@@ -1,0 +1,45 @@
+PROPELLER MUSHROOM (PC VR AND QUEST)
+
+Regular 60-second power-up. Available in the Spawn Menu and weighted box pool.
+Power-Up Spawn/Enable has its own enable checkbox and 1-100 weight, default 50.
+It replaces the previous special power-up; another pickup replaces it normally.
+Uses regular special music, or alternate music when that option is selected.
+Big Hands retains its separate 30-second default and optional 60-second timer.
+
+Press Jump again during any normal airtime to burst upward once, including
+tiny hops, water exits, slope jumps and lava rebounds. There is no minimum
+jump height or upward speed. A fresh press/gesture is required.
+With Physical Jumping enabled, another upward jump gesture also activates it.
+Lower/rearm the same hand or alternate hands; a held first gesture cannot
+automatically activate the burst. Touching down on ground/slopes, entering water,
+or bouncing off lava recharges the burst, not the timer. Deaths, cutscenes and
+underwater swimming are not airborne activation states.
+Steer while rising and slowly gliding down. The VR camera does not spin.
+Landing squarely on a normally stompable enemy (including while drilling)
+relaunches you at the same strength as the manual burst, without refreshing
+the power-up timer. Side hits, Bullies and breakable boxes do not relaunch you.
+
+Hold the Crouch binding, or physically crouch with Physical Crouching enabled,
+to descend fast. While held, the tornado's opacity is 100% and its spin is
+three times normal. Its texture retains the gaps between the tornado strands.
+Release crouch midair to brake back to the slow glide and transparent tornado.
+This crouch drill only applies to the Propeller Mushroom, NOT ordinary twirling.
+
+The in-game VR Tutorial > Special Moves includes the same controls.
+
+The Wii-style red helmet and yellow rotor attach to the rendered head joint.
+The helmet is hidden from the local first-person wearer, visible in third person.
+Customize the Propeller preset in the normal player palette/color editor, then
+export it as Propeller to save the power-up colors. Cap controls the helmet;
+Emblem controls the rotor; Overalls/Shirt/Gloves/Shoes control the outfit.
+Restore your usual player palette afterward: the Propeller preset is applied
+only while the power-up is active. Existing Propeller.ini files are preserved.
+With Grab Cap At Any Time enabled, grip + trigger near your head lets you inspect
+the cosmetic power-up helmet in your hand, including in first person. Release
+near your head to replace it, or release elsewhere to drop/throw a cosmetic copy.
+This never removes the power-up or changes its timer. The Hammer Suit now has a
+head-mounted helmet and torso-mounted back shell. Holding a cap/helmet blocks
+hammer charging until it is released, preventing the shared controls conflicting.
+
+Adapted from New Super Mario Bros. Wii's propeller ascent and spin descent;
+the 60-second timer and VR input mapping are this mod's implementation.

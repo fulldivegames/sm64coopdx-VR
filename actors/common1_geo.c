@@ -21,6 +21,7 @@
 #include "number/geo.inc.c"
 #include "mushroom_1up/geo.inc.c"
 #include "fire_flower/geo.inc.c"
+#include "propeller_mushroom/geo.inc.c"
 #include "hammer_suit/geo.inc.c"
 #include "sonic_shoes/geo.inc.c"
 #include "big_hands/geo.inc.c"

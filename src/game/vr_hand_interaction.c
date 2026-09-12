@@ -23,6 +23,8 @@
 #include "sm64.h"
 #include "surface_terrains.h"
 #include "vr_hand_interaction.h"
+#include "vr_spawn_weights.h"
+#include "vr_dive_gesture.h"
 
 #include "data/dynos.c.h"
 #include "pc/configfile.h"
@@ -38,6 +40,8 @@
 #include "pc/vr/vr.h"
 
 static void vr_special_moves_reset_big_hands(void);
+static void vr_special_moves_reset_propeller(void);
+static void vr_special_moves_reset_power_star(void);
 static bool sVrBigHandsPowered = false;
 static u16 sVrBigHandsTimer = 0;
 
@@ -136,7 +140,8 @@ static u16 sVrBigHandsTimer = 0;
 #define VR_SONIC_SHOES_DURATION_FRAMES 1800U
 #define VR_SONIC_SHOES_PICKUP_GRAVITY 0.65f
 #define VR_SONIC_SHOES_PICKUP_FALL_SPEED 7.0f
-#define VR_BIG_HANDS_DURATION_FRAMES VR_SONIC_SHOES_DURATION_FRAMES
+#define VR_BIG_HANDS_DURATION_DEFAULT_FRAMES 900U
+#define VR_BIG_HANDS_DURATION_LONG_FRAMES 1800U
 #define VR_BIG_HANDS_GROW_FRAMES 12U
 #define VR_BIG_HANDS_SHRINK_FRAMES 12U
 #define VR_BIG_HANDS_MAX_SCALE 4.0f
@@ -383,7 +388,6 @@ static u16 sVrHammerSuitTimer = 0;
 static u16 sVrHammerSuitMusicTimer = 0;
 static s16 sVrHammerSuitLevel = -1;
 static s16 sVrHammerSuitArea = -1;
-static struct Object* sVrHammerSuitShellObject = NULL;
 static struct Object* sVrHammerSuitPickupObject = NULL;
 static f32 sVrHammerSuitPickupVelocityY = 0.0f;
 static bool sVrHammerSuitPickupLanded = false;
@@ -1335,7 +1339,9 @@ static void vr_hand_interaction_reset(void) {
 static void vr_hand_interaction_update_punch_sound(
     struct MarioState* mario
 ) {
-    if (!configVrMarioPunchSound) {
+    if (!configVrMarioPunchSound || (mario->action & ACT_FLAG_AIR) ||
+        (mario->input & INPUT_A_PRESSED) || vr_jump_gesture_has_priority() ||
+        !mario->floor || fabsf(mario->pos[1]-mario->floorHeight)>5.0f) {
         sVrPunchSoundComboStep = 0;
         sVrPunchSoundComboResetFrames = 0;
         return;
@@ -1438,6 +1444,11 @@ static void vr_hand_interaction_register_motion_dive_punch(
         return;
     }
 
+    // The controller has already validated a deliberate forward stroke.
+    if (vr_jump_gesture_has_priority()) {
+        sVrMotionDivePairFrames[hand]=0;
+        return;
+    }
     sVrMotionDivePairFrames[hand] =
         VR_MOTION_DIVE_PAIR_WINDOW_FRAMES;
     if (sVrMotionDivePairFrames[VR_CONTROLLER_LEFT] == 0 ||
@@ -1514,12 +1525,6 @@ bool vr_hand_interaction_is_hammer_charge_object(
     struct Object* object
 ) {
     return object != NULL && object == sVrHammerChargeObject;
-}
-
-bool vr_hand_interaction_is_hammer_suit_shell_object(
-    struct Object* object
-) {
-    return object != NULL && object == sVrHammerSuitShellObject;
 }
 
 u32 vr_hand_interaction_get_tracked_held_hand(
@@ -2379,6 +2384,12 @@ void vr_hand_interaction_update_roomscale_body(
         return;
     }
     if (!vr_hand_interaction_roomscale_action_allowed(mario)) {
+        // Only level entry owns this reset. Climbing has its own tracking
+        // compensation; consuming it here moves the camera behind its back.
+        if (mario->action == ACT_SPAWN_SPIN_AIRBORNE ||
+            mario->action == ACT_SPAWN_NO_SPIN_AIRBORNE) {
+            vr_absorb_spawn_tracking();
+        }
         return;
     }
 
@@ -2415,6 +2426,7 @@ void vr_hand_interaction_update_roomscale_body(
     f32 resolvedFloorHeight = mario->floorHeight;
     const bool sonicWaterSurface =
         mario_is_sonic_water_run_floor(mario->floor);
+    const bool ridingShell = (mario->action & ACT_FLAG_RIDING_SHELL) != 0;
     const bool grounded =
         (mario->action & (ACT_FLAG_AIR | ACT_FLAG_SWIMMING)) == 0;
 
@@ -2446,15 +2458,14 @@ void vr_hand_interaction_update_roomscale_body(
             candidate[2],
             &floor
         );
-        if (sonicWaterSurface) {
+        if (sonicWaterSurface || ridingShell) {
             const f32 waterHeight = find_water_level(
                 candidate[0], candidate[2]
             );
             if (waterHeight > floorHeight) {
-                // Room-scale movement normally resolves against terrain. While
-                // Sonic water-running, retain the temporary water plane instead
-                // of snapping the first-person body down to the lake floor.
-                floor = mario->floor;
+                // Match the gameplay step's water support. Room-scale motion
+                // must not turn a shell ride into a fall toward the lakebed.
+                floor = ridingShell ? &gWaterSurfacePseudoFloor : mario->floor;
                 floorHeight = waterHeight;
             }
         }
@@ -2499,7 +2510,7 @@ void vr_hand_interaction_update_roomscale_body(
     if (grounded &&
         resolvedFloor != NULL &&
         resolvedFloorHeight < mario->pos[1] - 100.0f) {
-        set_mario_action(mario, ACT_FREEFALL, 0);
+        set_mario_action(mario, ridingShell ? ACT_RIDING_SHELL_FALL : ACT_FREEFALL, 0);
     }
     vec3f_copy(&mario->marioObj->oPosX, mario->pos);
     vec3f_copy(mario->marioObj->header.gfx.pos, mario->pos);
@@ -4618,10 +4629,15 @@ static void vr_hand_interaction_commit_physical_climb_offset(
     struct MarioState* mario
 ) {
     Vec3f offset;
+    Vec3f previousOffset;
+    Vec3f previousPosition;
     Vec3f safeReleasePosition;
     const bool safeReleasePositionValid =
         sVrPhysicalClimbSafeReleasePositionValid;
     vec3f_copy(offset, sVrPhysicalClimbCameraOffset);
+    vec3f_copy(previousOffset,
+        sVrPhysicalClimbOffsetTimestamp == gGlobalTimer
+            ? sVrPhysicalClimbCameraOffsetPrev : sVrPhysicalClimbCameraOffset);
     vec3f_copy(
         safeReleasePosition,
         sVrPhysicalClimbSafeReleasePosition
@@ -4629,6 +4645,7 @@ static void vr_hand_interaction_commit_physical_climb_offset(
     vr_hand_interaction_clear_physical_climb();
 
     if (mario != NULL && mario->marioObj != NULL) {
+        vec3f_copy(previousPosition, mario->pos);
         for (u32 axis = 0; axis < 3; axis++) {
             mario->pos[axis] += offset[axis];
         }
@@ -4639,6 +4656,10 @@ static void vr_hand_interaction_commit_physical_climb_offset(
         }
         vec3f_copy(&mario->marioObj->oPosX, mario->pos);
         vec3f_copy(mario->marioObj->header.gfx.pos, mario->pos);
+        for (u32 axis = 0; axis < 3; axis++) {
+            offset[axis] = mario->pos[axis] - previousPosition[axis];
+        }
+        vr_rebase_first_person_climb_anchor(previousOffset, offset);
         // Physical climbing already commits its accumulated camera/HMD
         // displacement into Mario here. Consume the matching room-scale
         // tracking remainder so the general body-follow path cannot apply it
@@ -4736,6 +4757,7 @@ static void vr_hand_interaction_release_physical_climb(
     const bool actionMatches =
         vr_hand_interaction_physical_climb_matches_action(mario);
     bool swingRelease = false;
+    bool hardSwingRelease = false;
     if (allowSwingRelease &&
         configVrSwingClimbRelease &&
         releaseVelocity != NULL) {
@@ -4746,6 +4768,8 @@ static void vr_hand_interaction_release_physical_climb(
         );
         swingRelease = isfinite(speed) &&
             speed >= VR_CLIMB_SWING_RELEASE_MIN_SPEED;
+        hardSwingRelease = isfinite(speed) &&
+            speed >= VR_CLIMB_SWING_RELEASE_MIN_SPEED * 2.0f;
     }
     Vec3f ledgeReleasePosition;
     struct Surface* ledgeReleaseFloor = NULL;
@@ -4785,6 +4809,12 @@ static void vr_hand_interaction_release_physical_climb(
             mario->faceAngle[2] = 0;
             mario->intendedYaw = viewYaw;
             set_mario_action(mario, ACT_WALL_KICK_AIR, 0);
+            if (hardSwingRelease) {
+                // This airborne action normally cuts ascent when A is not
+                // held. A hard physical release supplies the full jump, not
+                // synthetic A input that could leak into other actions.
+                mario->flags &= ~MARIO_UNKNOWN_08;
+            }
         } else {
             // Simply opening the last attached hand is always a clean fall;
             // only a sufficiently fast tracked release becomes a launch.
@@ -4837,6 +4867,22 @@ static void vr_hand_interaction_update_physical_climb_handoff(
             sVrPhysicalClimbHandoffGraceTimestamp = 0;
             sVrPhysicalClimbPendingSwingRelease = false;
             sVrPhysicalClimbPendingVelocityValid = false;
+            return;
+        }
+    }
+
+    // Both controllers have now been processed, so a same-frame handoff has
+    // already had its chance above. A deliberate swing must not sit frozen
+    // on the old anchor for the three-frame gentle-release grace period.
+    if (sVrPhysicalClimbPendingSwingRelease &&
+        sVrPhysicalClimbPendingVelocityValid && configVrSwingClimbRelease) {
+        const f32 speed = sqrtf(
+            sVrPhysicalClimbPendingVelocity[0] * sVrPhysicalClimbPendingVelocity[0] +
+            sVrPhysicalClimbPendingVelocity[1] * sVrPhysicalClimbPendingVelocity[1] +
+            sVrPhysicalClimbPendingVelocity[2] * sVrPhysicalClimbPendingVelocity[2]);
+        if (isfinite(speed) && speed >= VR_CLIMB_SWING_RELEASE_MIN_SPEED) {
+            vr_hand_interaction_release_physical_climb(
+                mario, sVrPhysicalClimbPendingVelocity, true);
             return;
         }
     }
@@ -6259,7 +6305,6 @@ static void vr_special_moves_reset_hammer_suit(void) {
     sVrHammerSuitPowered = false;
     sVrHammerSuitTimer = 0;
     sVrHammerSuitMusicTimer = 0;
-    vr_special_moves_delete_object(&sVrHammerSuitShellObject);
     vr_special_moves_clear_hammer_charge();
     for (u32 slot = 0; slot < VR_HAMMER_PROJECTILE_COUNT; slot++) {
         vr_special_moves_clear_hammer_projectile(slot);
@@ -6344,6 +6389,8 @@ void vr_special_moves_replace_powerup(void) {
     vr_special_moves_reset_sonic_shoes();
     vr_special_moves_reset_big_hands();
     stop_cap_music();
+    vr_special_moves_reset_propeller();
+    vr_special_moves_reset_power_star();
     gMarioStates[0].flags &= ~MARIO_SPECIAL_CAPS;
     gMarioStates[0].capTimer = 0;
 }
@@ -6878,6 +6925,9 @@ static bool vr_special_moves_spawn_big_hands_pickup(
     return true;
 }
 
+#include "vr_propeller.inc.h"
+#include "vr_power_star.inc.h"
+
 static bool vr_special_moves_spawn_box_reward(
     enum VrBoxReward reward,
     struct Object* parent,
@@ -6897,6 +6947,10 @@ static bool vr_special_moves_spawn_box_reward(
             return vr_special_moves_spawn_hammer_pickup(parent, x, y, z, 20.0f);
         case VR_BOX_REWARD_SONIC_SHOES:
             return vr_special_moves_spawn_sonic_shoes_pickup(parent, x, y, z, 20.0f);
+        case VR_BOX_REWARD_PROPELLER:
+            return vr_special_moves_spawn_propeller_pickup(parent, x, y, z, 20.0f);
+        case VR_BOX_REWARD_POWER_STAR:
+            return vr_special_moves_spawn_power_star_pickup(parent, x, y, z);
         case VR_BOX_REWARD_BIG_HANDS:
 #if VR_BIG_HANDS_ENABLED
             return vr_special_moves_spawn_big_hands_pickup(parent, x, y, z, 20.0f);
@@ -6926,40 +6980,51 @@ enum VrBoxReward vr_special_moves_roll_box_reward(
         return sVrRolledBoxReward;
     }
 
-    enum VrBoxReward choices[5] = { VR_BOX_REWARD_ORIGINAL };
+    enum VrBoxReward choices[7] = { VR_BOX_REWARD_ORIGINAL };
+    unsigned weights[7] = { vr_spawn_effective_weight(50, false) };
     u32 choiceCount = 1;
     if (configVrSpawnPoolFireFlower) {
+        weights[choiceCount] = vr_spawn_effective_weight(configVrSpawnWeightFireFlower, false);
         choices[choiceCount++] = VR_BOX_REWARD_FIRE_FLOWER;
     }
     if (configVrSpawnPoolHammerSuit) {
+        weights[choiceCount] = vr_spawn_effective_weight(configVrSpawnWeightHammerSuit, false);
         choices[choiceCount++] = VR_BOX_REWARD_HAMMER_SUIT;
     }
     if (configVrSpawnPoolSonicShoes) {
+        weights[choiceCount] = vr_spawn_effective_weight(configVrSpawnWeightSonicShoes, false);
         choices[choiceCount++] = VR_BOX_REWARD_SONIC_SHOES;
     }
 #if VR_BIG_HANDS_ENABLED
     if (configVrSpawnPoolBigHands) {
+        weights[choiceCount] = vr_spawn_effective_weight(configVrSpawnWeightBigHands, true);
         choices[choiceCount++] = VR_BOX_REWARD_BIG_HANDS;
     }
 #endif
-    enum VrBoxReward choice = VR_BOX_REWARD_ORIGINAL;
-    bool spawned = false;
-    if (choiceCount > 1 && (random_u16() & 1U) != 0) {
-        const u32 customCount = choiceCount - 1;
-        const u32 first = random_u16() % customCount;
-        for (u32 attempt = 0; attempt < customCount; attempt++) {
-            const enum VrBoxReward candidate =
-                choices[1 + ((first + attempt) % customCount)];
-            if (vr_special_moves_spawn_box_reward(
-                    candidate, owner->marioObj, box)) {
-                choice = candidate;
-                spawned = true;
-                break;
-            }
-        }
+    if (configVrSpawnPoolPropeller) {
+        weights[choiceCount] = vr_spawn_effective_weight(configVrSpawnWeightPropeller, false);
+        choices[choiceCount++] = VR_BOX_REWARD_PROPELLER;
     }
-    if (choice == VR_BOX_REWARD_ORIGINAL || spawned) {
-        sVrRolledBoxReward = choice;
+    if (configVrSpawnPoolPowerStar) {
+        weights[choiceCount] = vr_spawn_effective_weight(configVrSpawnWeightPowerStar, true);
+        choices[choiceCount++] = VR_BOX_REWARD_POWER_STAR;
+    }
+    if (choiceCount == 1) return sVrRolledBoxReward;
+    // Retry unavailable pickup pools without selecting disabled rewards.
+    // Original contents always remain a valid outcome, including all-off.
+    for (u32 attempt = 0; attempt < choiceCount; ++attempt) {
+        unsigned total = 0;
+        for (u32 i = 0; i < choiceCount; ++i) total += weights[i];
+        const unsigned limit = 65536U - (65536U % total);
+        unsigned ticket;
+        do { ticket = random_u16(); } while (ticket >= limit);
+        const unsigned selected = vr_spawn_weight_pick(weights, choiceCount, ticket % total);
+        if (selected == 0) break;
+        if (vr_special_moves_spawn_box_reward(choices[selected], owner->marioObj, box)) {
+            sVrRolledBoxReward = choices[selected];
+            break;
+        }
+        weights[selected] = 0;
     }
     return sVrRolledBoxReward;
 }
@@ -7406,6 +7471,7 @@ bool vr_special_moves_sonic_shoes_prevent_slope_slide(struct MarioState *m) {
 }
 
 f32 vr_special_moves_sonic_speed_scale(void) {
+    if (vr_special_moves_power_star_active()) return 1.5f;
     if (!vr_special_moves_sonic_shoes_active()) {
         return 1.0f;
     }
@@ -7444,12 +7510,11 @@ bool vr_special_moves_grant_sonic_shoes(void) {
         sVrSonicShoesMusic = audio_stream_load_path(musicPath);
     }
     if (configVrSpecialFireFlowerMusic) {
-        // Mute the stage player independently of the custom stream load. This
-        // keeps the Shoes effect deterministic even if an asset is missing.
-        stop_cap_music();
-        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 0.0f);
-        sVrSonicShoesMusicLowered = true;
         if (sVrSonicShoesMusic != NULL) {
+            stop_cap_music();
+            set_sequence_player_volume(SEQ_PLAYER_LEVEL, 0.0f);
+            sVrSonicShoesMusicLowered = true;
+            audio_stream_set_volume_channel(sVrSonicShoesMusic, MOD_AUDIO_CHANNEL_MUSIC);
             audio_stream_set_volume(sVrSonicShoesMusic, 1.0f);
             audio_stream_set_looping(sVrSonicShoesMusic, false);
             audio_stream_play(sVrSonicShoesMusic, true, 1.0f);
@@ -7841,58 +7906,6 @@ static void vr_special_moves_update_sonic_shoes_trail(
         );
     }
     sVrSonicShoesTrailValid = true;
-}
-
-static void vr_special_moves_update_hammer_suit_shell(
-    struct MarioState* mario
-) {
-    if (!vr_special_moves_hammer_suit_active() || mario == NULL ||
-        mario->marioObj == NULL) {
-        vr_special_moves_delete_object(&sVrHammerSuitShellObject);
-        return;
-    }
-    if (sVrHammerSuitShellObject == NULL) {
-        sVrHammerSuitShellObject = spawn_object(
-            mario->marioObj,
-            MODEL_VR_HAMMER_SHELL,
-            bhvStaticObject
-        );
-        if (sVrHammerSuitShellObject == NULL) {
-            return;
-        }
-        sVrHammerSuitShellObject->oInteractType = 0;
-    }
-
-    // Drive both interpolation endpoints from Mario's corresponding rendered
-    // body samples. Copying the shell's own previous transform made it trail
-    // Mario by a simulation update and produced the same intermittent jitter
-    // that physically held actors used to show in third person.
-    const f32 shellBackOffset = 8.0f;
-    const s16 yaw = mario->marioObj->header.gfx.angle[1];
-    const s16 previousYaw =
-        mario->marioObj->header.gfx.prevAngle[1];
-    sVrHammerSuitShellObject->oPosX =
-        mario->marioObj->header.gfx.pos[0] - sins(yaw) * shellBackOffset;
-    sVrHammerSuitShellObject->oPosY =
-        mario->marioObj->header.gfx.pos[1] + 68.0f;
-    sVrHammerSuitShellObject->oPosZ =
-        mario->marioObj->header.gfx.pos[2] - coss(yaw) * shellBackOffset;
-    sVrHammerSuitShellObject->oFaceAnglePitch = -0x4000;
-    sVrHammerSuitShellObject->oFaceAngleYaw = yaw;
-    sVrHammerSuitShellObject->oFaceAngleRoll = 0;
-    obj_scale(sVrHammerSuitShellObject, 0.44f);
-    obj_update_gfx_pos_and_angle(sVrHammerSuitShellObject);
-    sVrHammerSuitShellObject->header.gfx.prevPos[0] =
-        mario->marioObj->header.gfx.prevPos[0] -
-        sins(previousYaw) * shellBackOffset;
-    sVrHammerSuitShellObject->header.gfx.prevPos[1] =
-        mario->marioObj->header.gfx.prevPos[1] + 68.0f;
-    sVrHammerSuitShellObject->header.gfx.prevPos[2] =
-        mario->marioObj->header.gfx.prevPos[2] -
-        coss(previousYaw) * shellBackOffset;
-    sVrHammerSuitShellObject->header.gfx.prevAngle[0] = -0x4000;
-    sVrHammerSuitShellObject->header.gfx.prevAngle[1] = previousYaw;
-    sVrHammerSuitShellObject->header.gfx.prevAngle[2] = 0;
 }
 
 static bool vr_special_moves_point_is_behind_target(
@@ -10218,6 +10231,13 @@ static bool vr_special_moves_update_hammer_hand(
     const Vec3f velocity,
     bool handBusy
 ) {
+    // Taking the cosmetic helmet must cancel the preview, not launch the
+    // already charged hammer through the normal button-release path.
+    if (vr_is_controller_holding_cap(VR_CONTROLLER_LEFT) ||
+        vr_is_controller_holding_cap(VR_CONTROLLER_RIGHT)) {
+        vr_special_moves_clear_hammer_charge();
+        return false;
+    }
     const bool triggerPressed = state != NULL &&
         state->trigger >= VR_FIREBALL_TRIGGER_THRESHOLD;
     const bool gripPressed = state != NULL &&
@@ -10361,6 +10381,7 @@ static bool vr_special_moves_update_hammer_hand(
 }
 
 void vr_hand_interaction_release_custom_music(void) {
+    vr_power_star_stop_music();
     if (sVrAlternatePowerUpMusicPlaying || sVrSonicShoesMusicLowered) {
         if (sVrAlternatePowerUpMusic != NULL) audio_stream_stop(sVrAlternatePowerUpMusic);
         if (sVrSonicShoesMusic != NULL) audio_stream_stop(sVrSonicShoesMusic);
@@ -10398,7 +10419,7 @@ static void vr_special_moves_update_alternate_music(struct MarioState* mario) {
         configVrAlternatePowerUpMusic && !specialCap &&
         !vr_hand_interaction_action_is_death(mario->action) &&
         (sVrFireFlowerPowered || sVrHammerSuitPowered ||
-         vr_special_moves_big_hands_active());
+         vr_special_moves_big_hands_active() || vr_special_moves_propeller_active());
 
     if ((!configVrSpecialFireFlowerMusic ||
          specialCap || vr_hand_interaction_action_is_death(mario->action)) &&
@@ -10439,6 +10460,7 @@ static void vr_special_moves_update_alternate_music(struct MarioState* mario) {
         sVrSonicShoesMusic != NULL) {
         audio_stream_play(sVrSonicShoesMusic, true, 1.0f);
         sVrSonicShoesMusicLowered = true;
+        set_sequence_player_volume(SEQ_PLAYER_LEVEL, 0.0f);
     }
 }
 
@@ -10451,6 +10473,8 @@ void vr_hand_interaction_update(struct MarioState* mario) {
 
     const bool deathAction =
         vr_hand_interaction_action_is_death(mario->action);
+    vr_special_moves_update_propeller(mario);
+    vr_special_moves_update_power_star(mario);
     if (deathAction) {
         if (!sVrDeathResetActive) {
             struct Object* physicalPole = sVrPhysicalClimbPole;
@@ -10575,7 +10599,6 @@ void vr_hand_interaction_update(struct MarioState* mario) {
     // Advance the timer/transition once per simulation frame. Rendering may
     // query the same state more than once for stereo eyes.
     vr_special_moves_big_hands_active();
-    vr_special_moves_update_hammer_suit_shell(mario);
     vr_special_moves_update_sonic_shoes_trail(mario);
     vr_special_moves_update_projectiles(mario);
     vr_special_moves_update_hammer_projectiles(mario);
@@ -10777,8 +10800,8 @@ void vr_hand_interaction_update(struct MarioState* mario) {
     for (u32 hand = 0;
          hand < VR_CONTROLLER_COUNT;
          hand++) {
-        if (!configVrMotionControlledDive &&
-            !configVrMotionControlledGroundDive) {
+        if (vr_jump_gesture_has_priority() || (!configVrMotionControlledDive &&
+            !configVrMotionControlledGroundDive)) {
             sVrMotionDivePairFrames[hand] = 0;
         } else if (sVrMotionDivePairFrames[hand] > 0) {
             sVrMotionDivePairFrames[hand]--;
@@ -10979,7 +11002,9 @@ void vr_hand_interaction_update(struct MarioState* mario) {
                 &state,
                 position,
                 velocity,
-                fireballHandBusy || handIsChargingRasengan
+                fireballHandBusy || handIsChargingRasengan ||
+                vr_is_controller_holding_cap(VR_CONTROLLER_LEFT) ||
+                vr_is_controller_holding_cap(VR_CONTROLLER_RIGHT)
             );
         const bool handIsChargingFireball =
             hand == VR_CONTROLLER_RIGHT && positionValid &&
@@ -11212,6 +11237,9 @@ void vr_hand_interaction_update(struct MarioState* mario) {
             configVrPhysicalPunching &&
             !handIsHoldingObject) {
             vr_hand_interaction_update_punch_sound(mario);
+        }
+        const bool diveStarted = vr_consume_motion_dive(hand);
+        if (diveStarted && canStartInteraction && configVrPhysicalPunching && !handIsHoldingObject) {
             vr_hand_interaction_register_motion_dive_punch(
                 mario,
                 hand
@@ -11318,10 +11346,16 @@ static u32 sVrBigHandsPausedFrames = 0;
 static u32 sVrBigHandsPauseStartFrame = 0;
 static bool sVrBigHandsPauseTracking = false;
 static bool sVrBigHandsShrinkStarted = false;
+/* Capture the duration at pickup time so changing the option does not alter
+ * an already-active power-up. */
+static u32 sVrBigHandsDurationFrames = VR_BIG_HANDS_DURATION_DEFAULT_FRAMES;
 static struct ModAudio* sVrBigHandsGrowSound = NULL;
 static struct ModAudio* sVrBigHandsShrinkSound = NULL;
 
 void vr_hand_interaction_audio_shutdown(void) {
+    vr_power_star_stop_music();
+    sVrPowerStarMusic = NULL;
+    sVrPowerStarMusicLoadAttempted = false;
     sVrAlternatePowerUpMusic = NULL;
     sVrAlternatePowerUpMusicLoadAttempted = false;
     if (sVrAlternatePowerUpMusicPlaying) {
@@ -11354,6 +11388,7 @@ static void vr_special_moves_reset_big_hands(void) {
     sVrBigHandsPauseStartFrame = 0;
     sVrBigHandsPauseTracking = false;
     sVrBigHandsShrinkStarted = false;
+    sVrBigHandsDurationFrames = VR_BIG_HANDS_DURATION_DEFAULT_FRAMES;
 }
 
 static void vr_special_moves_play_big_hands_sound(
@@ -11410,15 +11445,16 @@ bool vr_special_moves_big_hands_active(void) {
         return false;
     }
     const u32 elapsed = vr_special_moves_big_hands_elapsed();
+    const u32 durationFrames = sVrBigHandsDurationFrames;
     if (gMarioStates[0].marioObj == NULL ||
         sVrBigHandsLevel != gCurrLevelNum ||
         sVrBigHandsArea != gCurrAreaIndex ||
-        elapsed >= VR_BIG_HANDS_DURATION_FRAMES +
+        elapsed >= durationFrames +
             VR_BIG_HANDS_SHRINK_FRAMES) {
         vr_special_moves_reset_big_hands();
         return false;
     }
-    if (elapsed >= VR_BIG_HANDS_DURATION_FRAMES) {
+    if (elapsed >= durationFrames) {
         if (!sVrBigHandsShrinkStarted) {
             sVrBigHandsShrinkStarted = true;
             vr_special_moves_play_big_hands_sound(
@@ -11428,7 +11464,7 @@ bool vr_special_moves_big_hands_active(void) {
         }
         sVrBigHandsTimer = 0;
     } else {
-        sVrBigHandsTimer = (u16)(VR_BIG_HANDS_DURATION_FRAMES - elapsed);
+        sVrBigHandsTimer = (u16)(durationFrames - elapsed);
     }
     return true;
 #endif
@@ -11440,6 +11476,7 @@ f32 vr_special_moves_big_hands_scale(void) {
     }
 
     const u32 elapsed = vr_special_moves_big_hands_elapsed();
+    const u32 durationFrames = sVrBigHandsDurationFrames;
     if (elapsed < VR_BIG_HANDS_GROW_FRAMES) {
         f32 t = (f32)(elapsed + 1U) /
             (f32)VR_BIG_HANDS_GROW_FRAMES;
@@ -11447,11 +11484,11 @@ f32 vr_special_moves_big_hands_scale(void) {
         t = t * t * (3.0f - 2.0f * t);
         return 1.0f + t * (VR_BIG_HANDS_MAX_SCALE - 1.0f);
     }
-    if (elapsed < VR_BIG_HANDS_DURATION_FRAMES) {
+    if (elapsed < durationFrames) {
         return VR_BIG_HANDS_MAX_SCALE;
     }
 
-    f32 t = (f32)(elapsed - VR_BIG_HANDS_DURATION_FRAMES + 1U) /
+    f32 t = (f32)(elapsed - durationFrames + 1U) /
         (f32)VR_BIG_HANDS_SHRINK_FRAMES;
     t = clamp(t, 0.0f, 1.0f);
     t = t * t * (3.0f - 2.0f * t);
@@ -11469,7 +11506,10 @@ bool vr_special_moves_grant_big_hands(void) {
 
     vr_special_moves_replace_powerup();
     sVrBigHandsPowered = true;
-    sVrBigHandsTimer = VR_BIG_HANDS_DURATION_FRAMES;
+    sVrBigHandsDurationFrames = configVrBigHandsLongTimer
+        ? VR_BIG_HANDS_DURATION_LONG_FRAMES
+        : VR_BIG_HANDS_DURATION_DEFAULT_FRAMES;
+    sVrBigHandsTimer = (u16)sVrBigHandsDurationFrames;
     sVrBigHandsLevel = gCurrLevelNum;
     sVrBigHandsArea = gCurrAreaIndex;
     sVrBigHandsStartFrame = gGlobalTimer;

@@ -33,6 +33,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
 #include "../pc_main.h"
+#include "../platform.h"
 #include "../configfile.h"
 #include "../cliopts.h"
 
@@ -42,6 +43,7 @@
 #include "pc/utils/misc.h"
 #include "pc/mods/mod_import.h"
 #include "pc/rom_checker.h"
+#include "pc/vr/vr.h"
 
 #ifndef GL_MAX_SAMPLES
 #define GL_MAX_SAMPLES 0x8D57
@@ -68,7 +70,10 @@ static void (*m_scroll)(float, float) = NULL;
 #define IS_FULLSCREEN() ((SDL_GetWindowFlags(wnd) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
 
 static inline void gfx_sdl_set_vsync(const bool enabled) {
-    SDL_GL_SetSwapInterval(enabled);
+    // Window/settings changes must not reinstate a second presentation clock
+    // after OpenXR has taken ownership of frame pacing. Preserve the saved
+    // desktop preference; pc_main restores it when leaving VR.
+    SDL_GL_SetSwapInterval(vr_is_active() ? 0 : enabled);
 }
 
 static void gfx_sdl_set_fullscreen(void) {
@@ -116,7 +121,9 @@ static void gfx_sdl_init(const char *window_title) {
 #endif
 
     SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
-    SDL_Init(SDL_INIT_VIDEO);
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        sys_fatal("Could not initialize video: %s", SDL_GetError());
+    }
     SDL_StartTextInput();
 
     if (configWindow.msaa > 0) {
@@ -133,6 +140,13 @@ static void gfx_sdl_init(const char *window_title) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);  // These attributes allow for hardware acceleration on RPis.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
+    // The shared Co-op DX shaders use GLSL 1.20 (attribute/varying). Request
+    // the matching legacy desktop context, not an inherited core/ES profile.
+    // Drivers may return a newer backwards-compatible context, as before.
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, 0);
 #endif
 
     int xpos = (configWindow.x == WAPI_WIN_CENTERPOS) ? SDL_WINDOWPOS_CENTERED : configWindow.x;
@@ -143,7 +157,14 @@ static void gfx_sdl_init(const char *window_title) {
         xpos, ypos, configWindow.w, configWindow.h,
         SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE
     );
+    if (!wnd) {
+        sys_fatal("Could not create the OpenGL window (MSAA %u): %s",
+                  (unsigned)configWindow.msaa, SDL_GetError());
+    }
     ctx = SDL_GL_CreateContext(wnd);
+    if (!ctx) {
+        sys_fatal("Could not create the OpenGL context: %s", SDL_GetError());
+    }
 
     gfx_sdl_set_vsync(configWindow.vsync);
 
@@ -162,6 +183,8 @@ bool gfx_sdl_check_opengl_compatibility(void) {
         }
     }
 
+    SDL_Window *previousWindow = SDL_GL_GetCurrentWindow();
+    SDL_GLContext previousContext = SDL_GL_GetCurrentContext();
     // hidden window
     SDL_Window* window = SDL_CreateWindow(
         "",
@@ -173,18 +196,24 @@ bool gfx_sdl_check_opengl_compatibility(void) {
         return false;
     }
 
-    SDL_GLContext ctx = SDL_GL_CreateContext(window);
+    SDL_GLContext probeContext = SDL_GL_CreateContext(window);
 
-    if (!ctx) {
+    if (!probeContext) {
         SDL_DestroyWindow(window);
+        if (previousContext) SDL_GL_MakeCurrent(previousWindow, previousContext);
         return false;
     }
 
-    SDL_GL_MakeCurrent(window, ctx);
-    bool validVersion = gfx_opengl_check_compatibility();
+    bool validVersion = SDL_GL_MakeCurrent(window, probeContext) == 0 &&
+                        gfx_opengl_check_compatibility();
 
-    SDL_GL_DeleteContext(ctx);
+    SDL_GL_DeleteContext(probeContext);
     SDL_DestroyWindow(window);
+    // A compatibility probe must not leave the game's renderer without its
+    // context; subsequent glCreateShader calls require it to be current.
+    if (previousContext && SDL_GL_MakeCurrent(previousWindow, previousContext) != 0) {
+        sys_fatal("Could not restore OpenGL context after compatibility check: %s", SDL_GetError());
+    }
 
     return validVersion;
 }

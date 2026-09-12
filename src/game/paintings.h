@@ -164,6 +164,7 @@ struct Painting
         u32 sVerticesPrevTimestamp;
         Vtx *sVerticesPtr[2];
         s32 sVerticesCount;
+        s32 sVerticesFirstCount;
     } ripples;
 };
 

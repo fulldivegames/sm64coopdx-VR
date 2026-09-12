@@ -348,7 +348,8 @@ void render_screen_texture_rectangle(s16 x, s16 y, s16 width, s16 height,
     gDPSetCombineMode(gDisplayListHead++, G_CC_FADEA, G_CC_FADEA);
     gDPSetRenderMode(gDisplayListHead++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
     gDPSetTextureFilter(gDisplayListHead++, G_TF_POINT);
-    gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING);
+    gSPClearGeometryMode(gDisplayListHead++, G_LIGHTING | G_TEXTURE_GEN |
+        G_TEXTURE_GEN_LINEAR | G_FOG | G_ZBUFFER | G_CULL_BOTH);
     gSPTexture(gDisplayListHead++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
     gSPVertex(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(vertices), 4, 0);
     gSP2Triangles(gDisplayListHead++, 0, 1, 2, 0, 0, 2, 3, 0);

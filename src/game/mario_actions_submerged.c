@@ -1,4 +1,5 @@
 #include <PR/ultratypes.h>
+#include <string.h>
 
 #include "sm64.h"
 #include "level_update.h"
@@ -23,6 +24,121 @@
 #include "pc/lua/smlua.h"
 #include "pc/lua/smlua_hooks.h"
 #include "pc/vr/vr.h"
+#include "pc/utils/misc.h"
+#include "game_init.h"
+#include "ingame_menu.h"
+#include "vr_hand_interaction.h"
+#include "vr_swim_stroke.h"
+#include "rendering_graph_node.h"
+
+extern bool gInteractableOverridePad;
+extern bool gDjuiInMainMenu;
+
+static struct {
+    struct VrSwimStroke hands[2];
+    struct VrSwimTracking tracking[2];
+    Vec3f drift, lastPosition;
+    u32 tick, origin;
+    struct Area* area;
+    double time;
+    bool valid;
+} sPhysicalSwim;
+
+static bool vr_physical_swim_action(u32 action) {
+    switch (action) {
+        case ACT_WATER_IDLE: case ACT_WATER_ACTION_END:
+        case ACT_BREASTSTROKE: case ACT_SWIMMING_END: case ACT_FLUTTER_KICK:
+        case ACT_WATER_PUNCH: case ACT_WATER_PLUNGE:
+            return true;
+        default: return false;
+    }
+}
+
+// Additive transport only: native swimming, currents, surface limits and water
+// collision still run normally. Never feed drift back into native forwardVel.
+static void vr_physical_swim_step(struct MarioState* m, Vec3f step) {
+    if (m->playerIndex != 0) return;
+    float head[3];
+    if (!configVrPhysicalSwimming || !configVrMotionControllerInput ||
+        gInteractableOverridePad || gDjuiInMainMenu || gMenuMode != -1 ||
+        !vr_is_active() || !vr_physical_swim_action(m->action) ||
+        m->heldObj || m->health <= 0x100 || (m->flags & MARIO_METAL_CAP) ||
+        vr_hand_interaction_is_physical_climb_active(m) ||
+        !vr_get_head_translation(head)) {
+        memset(&sPhysicalSwim, 0, sizeof(sPhysicalSwim));
+        return;
+    }
+    double now=clock_elapsed_f64();
+    u32 origin=vr_get_tracking_origin_generation();
+    float movedSquared=0;
+    for (int i=0;i<3;i++) {
+        float d=m->pos[i]-sPhysicalSwim.lastPosition[i];
+        movedSquared+=d*d;
+    }
+    if (!sPhysicalSwim.valid || origin!=sPhysicalSwim.origin ||
+        m->area!=sPhysicalSwim.area || gGlobalTimer-sPhysicalSwim.tick>1 ||
+        now-sPhysicalSwim.time>0.20 || now<sPhysicalSwim.time || movedSquared>250000.0f) {
+        memset(&sPhysicalSwim,0,sizeof(sPhysicalSwim));
+        sPhysicalSwim.valid=true;
+        sPhysicalSwim.tick=gGlobalTimer-1;
+    }
+    if (sPhysicalSwim.tick!=gGlobalTimer) {
+        sPhysicalSwim.tick=gGlobalTimer; sPhysicalSwim.origin=origin;
+        sPhysicalSwim.area=m->area; sPhysicalSwim.time=now;
+        vec3f_copy(sPhysicalSwim.lastPosition,m->pos);
+        float scale=(float)clamp(ns_coopnet_vr_gameplay_allowed() ? configVrSwimmingSpeed :
+            VR_SWIMMING_SPEED_DEFAULT, VR_SWIMMING_SPEED_MIN, VR_SWIMMING_SPEED_MAX)/100.0f;
+        for (int i=0;i<3;i++) sPhysicalSwim.drift[i]*=0.92f;
+        Mat4 trackingBasis;
+        float headRotation[4]={0,0,0,1}, headForward[3]={0,0,-1}, swimDirection[3];
+        const bool basisValid = vr_get_gameplay_tracking_basis(trackingBasis) &&
+            vr_get_head_rotation(headRotation) && vr_swim_head_forward(headRotation, headForward);
+        for(int i=0;i<3;i++) {
+            swimDirection[i]=basisValid ? headForward[0]*trackingBasis[0][i] +
+                headForward[1]*trackingBasis[1][i] + headForward[2]*trackingBasis[2][i] : 0;
+        }
+        for (unsigned hand=0;hand<2;hand++) {
+            struct VrControllerState controller={0};
+            struct VrSwimSample sample={0};
+            // Stroke recognition uses horizontal head facing; propulsion
+            // retains full headset pitch, with the deliberate upward override.
+            float headingLength=sqrtf(headForward[0]*headForward[0]+headForward[2]*headForward[2]);
+            if (basisValid && headingLength>0.0001f) {
+                sample.forward[0]=headForward[0]/headingLength;
+                sample.forward[2]=headForward[2]/headingLength;
+            } else if (basisValid) {
+                // Vertical gaze: recover yaw from the headset's right axis.
+                sample.forward[0]=2*(headRotation[0]*headRotation[2]-headRotation[3]*headRotation[1]);
+                sample.forward[2]=2*(headRotation[1]*headRotation[1]+headRotation[2]*headRotation[2])-1;
+                headingLength=sqrtf(vr_swim_dot(sample.forward,sample.forward));
+                if(headingLength>0.0001f) for(int i=0;i<3;i++) sample.forward[i]/=headingLength;
+            }
+            sample.valid=vr_get_controller_state(hand,&controller) &&
+                controller.gripPoseValid;
+            float travel[3];
+            sample.valid=vr_swim_tracking_delta(&sPhysicalSwim.tracking[hand],
+                sample.valid, controller.gripPosition, travel);
+            sample.valid=sample.valid && basisValid;
+            for(int i=0;i<3;i++) {
+                sample.position[i]=controller.gripPosition[i]-head[i];
+                sample.movement[i]=travel[i];
+                sample.worldMovement[i]=sample.valid ?
+                    travel[0]*trackingBasis[0][i] + travel[1]*trackingBasis[1][i] +
+                    travel[2]*trackingBasis[2][i] : 0;
+            }
+            sample.position[1]+=0.20f; // Approximate shoulder/upper-torso origin.
+            float pull=vr_swim_stroke_update(&sPhysicalSwim.hands[hand],&sample);
+            for(int i=0;i<3;i++) {
+                float direction=sPhysicalSwim.hands[hand].upward ? (i==1 ? 1.0f : 0.0f) : swimDirection[i];
+                sPhysicalSwim.drift[i]+=pull*49.725f*scale*direction;
+            }
+        }
+        float speed=sqrtf(vr_swim_dot(sPhysicalSwim.drift,sPhysicalSwim.drift));
+        if (speed>39.78f*scale) vec3f_mul(sPhysicalSwim.drift,39.78f*scale/speed);
+        if (speed<0.05f) vec3f_set(sPhysicalSwim.drift,0,0,0);
+    }
+    for(int i=0;i<3;i++) step[i]+=sPhysicalSwim.drift[i];
+}
 
 #define MIN_SWIM_STRENGTH 160
 #define MIN_SWIM_SPEED 16.0f
@@ -205,6 +321,7 @@ u32 perform_water_step(struct MarioState *m) {
     }
 
     vec3f_copy(step, m->vel);
+    vr_physical_swim_step(m, step);
 
     if (m->action & ACT_FLAG_SWIMMING) {
         apply_water_current(m, step);

@@ -1,0 +1,26 @@
+PC update packaging
+
+Run tools/package-vr-windows.ps1 with the exact release tag as -Version.
+Publish all three generated PC assets on the SAME release:
+  SM64-Co-Op-DX-VR-Windows-<tag>.zip          (complete fresh install)
+  SM64-Co-Op-DX-VR-Windows-<tag>-update.zip   (all files except speech model)
+  SM64-Co-Op-DX-VR-Windows-<tag>-update.json  (version and SHA-256 manifest)
+
+The updater verifies the installed model against the NEW release manifest.
+Only an exact match enables the smaller download. Missing or changed models
+select the complete package. Older releases without the manifest still work
+through their complete package. Both packages contain the current executable
+and resources; no previous executable is reused.
+
+Downloads use a direct .NET stream without PowerShell's per-chunk progress UI.
+The updater displays its download, verification, extraction and install stages.
+Size and manifest SHA-256 are checked before applying files; the required model
+is checked again before installation. User-only files are not removed.
+
+Old installed updaters cannot gain this behavior retroactively. They need one
+complete update or a manual fresh-package extraction first. Do not replace the
+normal fresh-install ZIP with the model-less update ZIP.
+
+tests/test_pc_updater.ps1 runs the generated updater in isolated folders using
+local archive downloads, with launch and cleanup mocked. No real installation
+is changed. Network speed and VR gameplay are not measured by that test.

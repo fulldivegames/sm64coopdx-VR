@@ -14,6 +14,7 @@ extern "C" {
 #include "game/paintings.h"
 #include "game/geo_misc.h"
 #include "game/mario_misc.h"
+#include "game/vr_hand_interaction.h"
 #include "game/mario_actions_cutscene.h"
 #include "game/obj_behaviors.h"
 #include "game/obj_behaviors_2.h"
@@ -417,6 +418,7 @@ static const void *sDynosBuiltinActors[] = {
     define_builtin(warios_metal_cap_geo),
     define_builtin(warios_wing_cap_geo),
     define_builtin(warios_winged_metal_cap_geo),
+    define_builtin(vr_propeller_mushroom_geo),
 };
 
 const GeoLayout* DynOS_Builtin_Actor_GetFromName(const char* aDataName) {
@@ -2039,6 +2041,7 @@ static const DynosBuiltinFunction sDynosBuiltinFuncs[] = {
     define_builtin_function(bhv_point_light_init, FUNCTION_BHV),
     define_builtin_function(bhv_point_light_loop, FUNCTION_BHV),
     define_builtin_function(geo_switch_character_type, FUNCTION_GEO),
+    define_builtin_function(geo_vr_twirl_tornado, FUNCTION_GEO),
 };
 
 static const char *sDynosBuiltinFuncTypeNames[] = {

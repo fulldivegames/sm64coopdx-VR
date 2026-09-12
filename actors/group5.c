@@ -22,5 +22,6 @@ UNUSED static const u64 binid_1 = 1;
 UNUSED static const u64 binid_2 = 2;
 
 #include "tornado/model.inc.c"
+#include "game/vr_hand_interaction.h"
 #include "tornado/geo.inc.c"
 UNUSED static const u64 binid_3 = 3;

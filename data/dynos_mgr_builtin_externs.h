@@ -366,6 +366,7 @@ extern ALIGNED8 const Texture toad_seg6_texture_06005920[];
 extern ALIGNED8 const Texture toad_seg6_texture_06006120[];
 extern ALIGNED8 const Texture tornado_seg5_texture_05013128[];
 extern ALIGNED8 const Texture vr_fire_flower_texture[];
+extern ALIGNED8 const Texture vr_propeller_mushroom_texture[];
 extern ALIGNED8 const Texture vr_rasengan_texture[];
 extern ALIGNED8 const Texture vr_rasen_shuriken_texture[];
 extern ALIGNED8 const Texture treasure_chest_seg6_texture_06013FA8[];

@@ -867,6 +867,57 @@ const Gfx mario_metal_torso_shared_dl[] = {
     gsSPEndDisplayList(),
 };
 
+// Propeller-only torso detail. Preserve the button-region geometry (removing
+// it leaves holes), but omit its yellow decal texture. The narrow zipper hugs
+// the native torso planes in bone space: X up, Y forward, Z across.
+static const Vtx mario_propeller_zipper_vtx[] = {
+    {{{100,  4, -6}, 0, {0,0}, {114, 55, 0,255}}},
+    {{{100,  4,  6}, 0, {0,0}, {114, 55, 0,255}}},
+    {{{ 82, 40, -6}, 0, {0,0}, { 93, 87, 0,255}}},
+    {{{ 82, 40,  6}, 0, {0,0}, { 93, 87, 0,255}}},
+    {{{ 47, 78, -6}, 0, {0,0}, { 59,112, 0,255}}},
+    {{{ 47, 78,  6}, 0, {0,0}, { 59,112, 0,255}}},
+    {{{ 28, 88, -6}, 0, {0,0}, { 26,124, 0,255}}},
+    {{{ 28, 88,  6}, 0, {0,0}, { 26,124, 0,255}}},
+    {{{  9, 92, -6}, 0, {0,0}, {  0,127, 0,255}}},
+    {{{  9, 92,  6}, 0, {0,0}, {  0,127, 0,255}}},
+    {{{-15, 91, -6}, 0, {0,0}, {244,126, 0,255}}},
+    {{{-15, 91,  6}, 0, {0,0}, {244,126, 0,255}}},
+    {{{-43, 86, -6}, 0, {0,0}, {233,125, 0,255}}},
+    {{{-43, 86,  6}, 0, {0,0}, {233,125, 0,255}}},
+};
+const Gfx mario_propeller_torso[] = {
+    gsDPPipeSync(),
+    gsSPTexture(0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_OFF),
+    gsDPSetCombineMode(G_CC_SHADEFADEA, G_CC_SHADEFADEA),
+    gsSPCopyLightsPlayerPart(PANTS),
+    gsSPDisplayList(mario_yellow_button_dl),
+    gsSPDisplayList(mario_torso_dl),
+    // Explicit white material, independent of inherited player lights or
+    // packed-normal state. Keep the original environment alpha for fading.
+    gsSPEndDisplayList(),
+};
+const Gfx mario_propeller_zipper_dl[] = {
+    gsDPPipeSync(),
+    gsDPSetPrimColor(0, 0, 255, 255, 255, 255),
+    gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF),
+    gsDPSetCombineLERP(0,0,0,PRIMITIVE, 0,0,0,ENVIRONMENT,
+                      0,0,0,PRIMITIVE, 0,0,0,ENVIRONMENT),
+    gsSPClearGeometryMode(G_CULL_BOTH),
+    gsSPVertex(mario_propeller_zipper_vtx, 14, 0),
+    gsSP2Triangles(0,2,1,0, 1,2,3,0),
+    gsSP2Triangles(2,4,3,0, 3,4,5,0),
+    gsSP2Triangles(4,6,5,0, 5,6,7,0),
+    gsSP2Triangles(6,8,7,0, 7,8,9,0),
+    gsSP2Triangles(8,10,9,0, 9,10,11,0),
+    gsSP2Triangles(10,12,11,0, 11,12,13,0),
+    gsSPSetGeometryMode(G_CULL_BACK),
+    gsDPPipeSync(),
+    gsDPSetCombineMode(G_CC_SHADEFADEA, G_CC_SHADEFADEA),
+    gsSPCopyLightsPlayerPart(SHIRT),
+    gsSPEndDisplayList(),
+};
+
 // 0x04010410
 ROM_ASSET_LOAD_VTX(mario_m_logo_dl_vertex, 0x00114750, 78432, 0x00010410, 112);
 

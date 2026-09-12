@@ -16,9 +16,14 @@ const struct PlayerPalette DEFAULT_FIRE_FLOWER_PALETTE =
 
 const struct PlayerPalette DEFAULT_HAMMER_SUIT_PALETTE =
 //  Overalls              Shirt                 Gloves                Shoes                 Hair                  Skin                  Cap                   Emblem
-{ { { 0x12, 0x14, 0x18 }, { 0xf4, 0xf4, 0xf2 }, { 0xff, 0xff, 0xff }, { 0x72, 0x38, 0x1c }, { 0x73, 0x06, 0x00 }, { 0xfe, 0xc1, 0x79 }, { 0x10, 0x12, 0x16 }, { 0xf2, 0xf2, 0xf2 } } };
+{ { { 0x00, 0x00, 0x00 }, { 0xf4, 0xf4, 0xf2 }, { 0xff, 0xff, 0xff }, { 0x72, 0x38, 0x1c }, { 0x73, 0x06, 0x00 }, { 0xfe, 0xc1, 0x79 }, { 0x10, 0x12, 0x16 }, { 0xf2, 0xf2, 0xf2 } } };
 
 static ini_t* sPalette = NULL;
+
+// CAP colors the helmet; EMBLEM colors its rotor. Both remain editable in the
+// ordinary palette editor. Do not overwrite the user's Propeller.ini on load.
+const struct PlayerPalette DEFAULT_PROPELLER_PALETTE =
+{ { { 0xe8, 0x20, 0x20 }, { 0xe8, 0x20, 0x20 }, { 0xff, 0xff, 0xff }, { 0x20, 0x48, 0xa8 }, { 0x73, 0x06, 0x00 }, { 0xfe, 0xc1, 0x79 }, { 0xe8, 0x20, 0x20 }, { 0xff, 0xd0, 0x18 } } };
 
 #if defined(__ANDROID__)
 extern const char* quest_android_shared_palette_path(void);
@@ -66,7 +71,15 @@ EMBLEM_R = %d\nEMBLEM_G = %d\nEMBLEM_B = %d\n",
     return true;
 }
 
-static void player_palette_ensure_fire_flower(const char* palettesPath) {
+static void player_palette_ensure_powerup_presets(const char* palettesPath) {
+    char propellerPath[SYS_MAX_PATH];
+    snprintf(propellerPath, sizeof(propellerPath), "%s/Propeller.ini", palettesPath);
+    FILE* propeller = fopen(propellerPath, "r");
+    if (propeller != NULL) {
+        fclose(propeller);
+    } else {
+        player_palette_write(palettesPath, "Propeller", &DEFAULT_PROPELLER_PALETTE);
+    }
     char ppath[SYS_MAX_PATH] = "";
     snprintf(
         ppath,
@@ -98,6 +111,15 @@ const struct PlayerPalette* player_palette_get_fire_flower(void) {
 
 const struct PlayerPalette* player_palette_get_hammer_suit(void) {
     return &DEFAULT_HAMMER_SUIT_PALETTE;
+}
+
+const struct PlayerPalette* player_palette_get_propeller(void) {
+    for (u16 i = 0; i < gPresetPaletteCount; ++i) {
+        if (strcmp(gPresetPalettes[i].name, "Propeller") == 0) {
+            return &gPresetPalettes[i].palette;
+        }
+    }
+    return &DEFAULT_PROPELLER_PALETTE;
 }
 
 static bool player_palette_init(const char* palettesPath, char* palette, bool appendPalettes) {
@@ -183,10 +205,10 @@ void player_palettes_read(const char* palettesPath, bool appendPalettes) {
         // Standalone user palettes live in shared storage. Avoid creating a
         // duplicate Fireflower preset in the legacy private fallback path.
         if (strcmp(ppath, quest_android_shared_palette_path()) == 0) {
-            player_palette_ensure_fire_flower(ppath);
+            player_palette_ensure_powerup_presets(ppath);
         }
 #else
-        player_palette_ensure_fire_flower(ppath);
+        player_palette_ensure_powerup_presets(ppath);
 #endif
     }
 
@@ -217,7 +239,8 @@ void player_palettes_read(const char* palettesPath, bool appendPalettes) {
         // not expose two identically named presets in the menu.
         if (!appendPalettes &&
             strcmp(palettesPath, quest_android_shared_palette_path()) != 0 &&
-            strcmp(path, FIRE_FLOWER_PALETTE_NAME) == 0) { continue; }
+            (strcmp(path, FIRE_FLOWER_PALETTE_NAME) == 0 ||
+             strcmp(path, "Propeller") == 0)) { continue; }
 #endif
 
         if (!player_palette_init(palettesPath, path, appendPalettes)) {

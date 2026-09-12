@@ -338,6 +338,9 @@ bool djui_base_render(struct DjuiBase* base) {
 }
 
 void djui_base_destroy(struct DjuiBase* base) {
+    if (djui_cursor_get_input_controlled_base() == base) {
+        djui_cursor_input_controlled_center(NULL);
+    }
     // remove hovered status
     if (gDjuiHovered == base) {
         gDjuiHovered = NULL;

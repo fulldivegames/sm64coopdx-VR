@@ -72,13 +72,11 @@ void djui_panel_display_create(struct DjuiBase* caller) {
         djui_checkbox_create(body, DLANG(DISPLAY, SHOW_FPS), &configShowFPS, NULL);
         djui_checkbox_create(body, DLANG(DISPLAY, VSYNC), &configWindow.vsync, djui_panel_display_apply);
 
-        if (GAPI_MAX > 1) {
-            char* gfxBackendChoices[2] = {
-                "OpenGL",
-                "DirectX 11"
-            };
-            djui_selectionbox_create(body, DLANG(DISPLAY, GRAPHICS_BACKEND), gfxBackendChoices, 2, &configGraphicsBackend, djui_panel_display_update_restart_text);
-        }
+        // Renderer is fixed to OpenGL; do not expose an incompatible DX11 choice.
+        struct DjuiText* backendText = djui_text_create(body, "Graphics Backend: OpenGL");
+        djui_base_set_size_type(&backendText->base, DJUI_SVT_RELATIVE, DJUI_SVT_ABSOLUTE);
+        djui_base_set_size(&backendText->base, 1.0f, 32);
+        djui_base_set_color(&backendText->base, 220, 220, 220, 255);
 
         char* framerateModeChoices[3] = { DLANG(DISPLAY, AUTO), DLANG(DISPLAY, MANUAL), DLANG(DISPLAY, UNCAPPED) };
         djui_selectionbox_create(body, DLANG(DISPLAY, FRAMERATE_MODE), framerateModeChoices, 3, &configFramerateMode, djui_panel_display_framerate_mode_change);

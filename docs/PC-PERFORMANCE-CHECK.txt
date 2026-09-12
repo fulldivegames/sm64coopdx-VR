@@ -1,0 +1,31 @@
+PC VR performance investigation
+
+Confirmed code defect corrected: applying Display/window settings could turn
+desktop VSync back on after OpenXR pacing disabled it. All SDL settings paths
+now retain swap interval zero while VR is active. The saved flat-screen VSync
+preference is not changed. This is not confirmation that every low-FPS report
+was caused by VSync.
+
+The stereo vertex cache and ordered bulk GL upload optimization used for
+large maps also run on PC. Desktop mirroring is throttled and normally copies
+an existing eye, rather than drawing a third scene. Their behavior is retained.
+No resolution, filter, collision, or gameplay quality has been reduced.
+
+The existing VR Performance > FPS Counter enables low-frequency PC console
+timings (one aggregate report per five seconds):
+  [VR PC timing]: game-update elapsed time, desktop-present elapsed time,
+                  actual swap interval, render scale and mirror settings.
+  [VR XR timing]: runtime wait, eye-work and submit elapsed times, frame
+                  budget and runtime target dimensions.
+
+These are elapsed CPU timings, not GPU timestamps or encoder timings.
+High eye-work can include driver/GPU waits. Long runtime wait is not by itself
+proof of a problem because OpenXR deliberately paces frames. Desktop-present
+and game-update timings fill gaps in the previous OpenXR-only diagnostics.
+
+Validation route: Bob-omb Battlefield, stationary and moving views, then
+change a Display setting while in VR and return to gameplay. Compare with
+Desktop View disabled. Verify swap interval remains zero in VR and returns
+to the saved desktop value on leaving VR. No remote player's performance
+capture has been measured in this pass; a 55-FPS report is not enough to
+claim a specific bottleneck or a verified FPS improvement.

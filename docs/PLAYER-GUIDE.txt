@@ -1,4 +1,4 @@
-SM64 CO-OP DX VR STANDALONE v0.6.0 - QUEST PLAYER GUIDE
+SM64 CO-OP DX VR - CURRENT LOCAL QUEST PLAYER GUIDE
 ================================================
 
 WHAT YOU NEED
@@ -10,6 +10,16 @@ WHAT YOU NEED
 Nintendo ROMs and game assets are not included in this download.
 The ROM and extracted Nintendo assets are never included in the APK.
 
+
+This guide describes the current local build, not a new published release.
+For current physical gestures, see PHYSICAL-SWIMMING.txt and PHYSICAL-JUMPING.txt.
+Propeller Mushroom: 60 seconds. Jump again in the air for a burst; hold crouch
+for a fast drill, release for slow glide. See PROPELLER-MUSHROOM.txt or the
+in-game Special Moves tutorial. Ordinary twirling has no crouch drill.
+The first 0.9.2 launch enables physical jumping, swimming, punching, grabbing,
+climbing, swing release and ground/air motion dives once. Crouching and bindings
+are unchanged. Disable any unwanted actions in settings; later launches retain
+your changes. Other settings remain preserved.
 
 FIRST-TIME SETUP
 
@@ -38,8 +48,9 @@ CAMERA MODES
   side-flip grace lasts 10 gameplay simulation ticks. These are Mario's
   30 Hz updates, not headset render frames, so Quest refresh rate does not
   shorten either window.
-- Swimming, Wing Cap flight, and shell riding follow the direction you look.
-  Normal action buttons are still used for swimming strokes and other moves.
+- Button swimming, Wing Cap flight, and shell riding retain their normal VR
+  steering. Optional Physical Swimming uses strokes with headset aiming and
+  an overhead upward-swim gesture. Normal action buttons remain available.
 - Tunnels, conversations, doors, and other scripted camera events continue
   running without pulling the first-person headset view away from the player.
 - The character's head and normal arms are hidden in first person. Tracked,
@@ -65,9 +76,8 @@ Smooth turn / camera    Right stick
 Jump                    Right Primary (usually A)
 Attack / interact       Right Secondary (usually B)
 Crouch                  Left Trigger
-L button                Left stick click
-R button                Right stick click
-Pause                   Left Menu
+Other actions           See Controller Bindings for current mappings
+Pause                   Left stick click
 Close fist / grab       Hold that hand's Grip
 Right Trigger punch     Disabled by default; optional in Controller Bindings
 
@@ -88,13 +98,18 @@ it at your hand. Release gently to drop it, or release during a faster hand
 movement to throw it.
 
 DIVE
-Punch with both hands at nearly the same time. In the air this performs a
+Punch forward with both hands at nearly the same time. Air dives require a
+20 cm stroke at 1.65 m/s; ground dives use 13 cm at 1.20 m/s. Headset yaw
+sets forward, not its pitch. Jump gestures take priority, with no added settle timer.
+In the air this performs a
 dive. While running fast enough, it performs a ground running dive. The two
 types can be enabled separately in Motion Control Settings.
 
 CROUCH AND GROUND POUND
 With Physical Crouching / Ground Pounds enabled, lower your headset by about
-one third of your calibrated standing height. Mario stays crouched until you
+10% of your calibrated standing height by default. Physical Crouch Depth,
+right below the checkbox in Immersion > Movement & Body, ranges from 10 to
+50%; lower values require less crouching. Mario stays crouched until you
 stand back up. Crouching while airborne triggers a ground pound.
 
 BOWSER
@@ -123,7 +138,7 @@ Camera Settings
   movement calibration, and field of view.
 
 Controller Bindings
-  Motion-controller input, stick selection, button mapping, and optional
+  Stick selection, press-to-bind button mapping, and optional
   Right Trigger punching.
 
 Motion Control Settings
@@ -146,7 +161,8 @@ Cheats
   200%. Both remain at their native 100% defaults.
 
 HUD Settings
-  HUD opacity.
+  HUD opacity, corner spread, positioning and attachment options. Speedrunning
+  has its own VR menu for the timer and split viewer.
 
 Experimental
   Flat first person, True First Person, True Diving (Camera Effect), Arms
@@ -172,12 +188,14 @@ be uncomfortable. Both options are disabled by default.
 Every submenu has a Set to Defaults button.
 
 
-SUCCESSFUL-EXIT CAP GESTURE
+CAP GESTURE
 
 During a successful star exit, bring either tracked glove to the headset or
 just above it and hold that hand's Grip + Trigger. Either hand can pull off the
 cap and hold it for about one minute. Let go to drop the cap onto level
-geometry; it rests briefly and fades. Death and Exit Course do not activate it.
+geometry; it rests briefly and fades. Death and Exit Course do not activate the successful-exit gesture.
+With Grab Cap at Any Time enabled, the same Grip + Trigger gesture works
+outside successful exits. A red X on the life icon marks a missing hat.
 
 
 STARTUP SHADER CACHE
@@ -207,7 +225,88 @@ TROUBLESHOOTING
 
 PROJECT PAGE
 
-https://github.com/fulldivegames/sm64coopdx-VR
+https://github.com/fulldivegames/sm64coopdx-VR-Standalone-Physics-based
 
 This is an unofficial fan project. It is not affiliated with or endorsed by
 Nintendo, the SM64 Co-Op DX team, Meta, Virtual Desktop, or Khronos.
+
+CURRENT LOCAL GESTURES AND SETTINGS
+
+VR > Immersion > Movement & Body:
+- Physical Swimming defaults on for new settings. Reach outward, then pull water back
+  toward your upper torso. Normal pulls follow headset aim. Pull down from
+  overhead to swim upward. Recovery produces no thrust. Either hand,
+  alternating hands and both hands work. Normal button swimming remains.
+- Physical Jumping defaults on for new settings. Hold Grip and punch within 15 degrees
+  of straight up while grounded. Trigger is not needed. Either/both hands can
+  jump; keep one raised to hold Jump, or lower/release to shorten it. Lower and
+  punch again after landing for normal double/triple jumps.
+  "Use Triggers Instead of Grips" switches only physical jumping (including
+  wall kicks) to either trigger. Off by default; change your crouch binding
+  before enabling it. Grabbing and punching still use grips.
+  Hard physical climb-release swings get the full jump-off ascent; softer
+  swings retain the shorter release. Simply letting go still drops normally.
+- Physical Crouching / Ground Pounds is on by default. Physical Crouch Depth
+  defaults to 10%, adjustable from 10 to 50. Lower values need less crouching.
+  Head-tilt compensation reduces accidental crouching when looking down.
+  The setting uses calibrated height; recenter while standing neutrally.
+- Existing saved settings are retained. New defaults do not overwrite them.
+
+Special power-up spawn weights range from 1 to 100, default 50. These are
+relative weights, not literal percentages. Disable a power-up with its checkbox.
+Big Hands lasts 30 seconds; its optional 60-second timer applies at pickup.
+Big Hands has half the relative box-spawn weight of ordinary power-ups at
+equal slider settings, even with its optional 60-second timer enabled.
+Physical Jumping also wall-kicks; its 120 ms landing buffer helps jump chains.
+Keep the triggering fist raised for a full-height wall kick; lower/release it
+to shorten the kick. Landing clears the gesture hold.
+Crossed Tree Billboards defaults on; Look Toward Spawned Star defaults off.
+Normal maps remain optional and off by default.
+
+Controller Bindings captures the next chosen input. Right-primary still
+confirms menus even if Jump is remapped. Pause defaults to left stick click.
+Mic starts dictation; press it again to finish, rather than cancel. Closing the
+keyboard cancels. Quest uses Android dictation; PC uses its bundled speech files.
+
+Speedrunning has its own VR menu for setup, names, split count, Confirm, HUD
+position/size/color and progressive split reveal. See VR-SPEEDRUN.txt.
+Special > Filters includes Cell Shaded and Super Mario Land. Character Select
+uses a floating theater panel. See PHYSICAL-SWIMMING.txt and PHYSICAL-JUMPING.txt
+for gesture details. These are local-build instructions, not a release notice.
+Propeller Mushroom lasts 60 seconds: jump again in the air (button or physical
+jump gesture) for one burst per airtime. Hold crouch for fast descent and a
+3x-speed opaque tornado; release to glide. Ordinary twirling has no crouch drill.
+Its helmet follows the head and is hidden in first person. Customize/export
+the Propeller palette: Cap = helmet, Emblem = rotor. See PROPELLER-MUSHROOM.txt.
+The Hammer Suit helmet and back shell follow Mario's animated body. A top stomp on a normally stompable
+enemy relaunches Propeller Mario at full burst strength; side hits and Bullies do not.
+
+POWER STAR
+----------
+Collect the half-size bouncing star with your body, headset or hand. It retains
+its eyes and leaves golden sparkles. For 30 seconds, Mario shimmers with rainbow
+colors, runs 1.5x as fast, jumps 1.5x higher, and attacks enemies on contact
+without taking enemy-contact damage. One-hit enemies are defeated; Chain Chomps
+explode. Falling out of the level and scripted deaths still apply.
+The rainbow tint and dedicated Super Mario Bros. 3 Star Theme fade during the
+last four seconds; abilities remain active until expiry. The Spawn Menu drops
+it from the same high position as other power-ups. It bounces on floors (including
+lava and quicksand) and on water approached from above, rather than sinking.
+
+Special Moves offers Power Star 60-Second Timer. Set it before pickup; changing
+it during a run does not change the active timer. Power Star has half the spawn
+weight of ordinary powers at the same slider setting. It has its own enable
+checkbox and weight slider, plus a Spawn Menu entry. Another power replaces it.
+In Power-Up Spawn/Enable, Power-Ups, Specials and Gestures are labeled sections,
+not separate menus. Big Hands and Power Star are adjacent under Specials; their
+weights are half the ordinary rate. Rasengan / Rasen-Shuriken have no spawn weight.
+
+MUSIC PRIORITY
+--------------
+Native Wing, Metal and Vanish caps retain their original cap themes. Sonic Shoes
+and Power Star retain their dedicated songs with Alternate Power-Up Music on or
+off. Alternate music affects only added powers without a dedicated track.
+The Power-Up Music switch controls added power-up songs, not native cap music.
+
+Tutorial pages now use spaced paragraphs and Previous/Next Page buttons.
+Public VR lobby rules: Be nice and have fun.

@@ -6,6 +6,7 @@
 #include "djui_panel_menu.h"
 #include "djui_flow_layout.h"
 #include "djui_palette_colors.h"
+#include "djui_tutorial_pages.h"
 
 #include "pc/configfile.h"
 #include "pc/controller/controller_api.h"
@@ -282,6 +283,10 @@ static void djui_panel_vr_spawn_big_hands(struct DjuiBase* caller) {
     vr_special_moves_spawn_cheat_big_hands();
 }
 
+static void djui_panel_vr_spawn_propeller(UNUSED struct DjuiBase* caller) {
+    vr_special_moves_spawn_cheat_propeller();
+}
+
 static void djui_panel_vr_spawn_wing_cap(UNUSED struct DjuiBase* caller) {
     vr_special_moves_spawn_cheat_cap(VR_CHEAT_SPAWN_WING_CAP);
 }
@@ -292,6 +297,10 @@ static void djui_panel_vr_spawn_vanish_cap(UNUSED struct DjuiBase* caller) {
 
 static void djui_panel_vr_spawn_metal_cap(UNUSED struct DjuiBase* caller) {
     vr_special_moves_spawn_cheat_cap(VR_CHEAT_SPAWN_METAL_CAP);
+}
+
+static void djui_panel_vr_spawn_power_star(UNUSED struct DjuiBase* caller) {
+    vr_special_moves_spawn_cheat_power_star();
 }
 
 static void djui_panel_vr_spawn_menu_create(struct DjuiBase* caller) {
@@ -307,8 +316,12 @@ static void djui_panel_vr_spawn_menu_create(struct DjuiBase* caller) {
         djui_panel_vr_spawn_metal_cap);
     djui_button_create(body, "Fire Flower", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_spawn_fire_flower);
-    djui_button_create(body, "Hammer (Hammer Suit)", DJUI_BUTTON_STYLE_NORMAL,
+    djui_button_create(body, "Hammer Suit", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_spawn_hammer_suit);
+    djui_button_create(body, "Propeller Mushroom", DJUI_BUTTON_STYLE_NORMAL,
+        djui_panel_vr_spawn_propeller);
+    djui_button_create(body, "Power Star", DJUI_BUTTON_STYLE_NORMAL,
+        djui_panel_vr_spawn_power_star);
     djui_button_create(body, "Sonic Shoes", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_spawn_sonic_shoes);
     djui_button_create(body, "Big Hands", DJUI_BUTTON_STYLE_NORMAL,
@@ -490,15 +503,30 @@ static void djui_panel_vr_special_moves_defaults(
     configVrAlternatePowerUpMusic = false;
     configVrSpecialHammerSuit = true;
     configVrSpecialSonicShoes = true;
+    configVrBigHandsLongTimer = false;
+    configVrPowerStarLongTimer = false;
     configVrSonicShoesSpeed = VR_SONIC_SHOES_SPEED_DEFAULT;
     configVrBigHandsReach = VR_BIG_HANDS_REACH_DEFAULT;
     configVrSpecialRasengan = true;
 }
+static unsigned int sSpawnWeightDraft[6];
+static void djui_panel_vr_spawn_pool_apply(UNUSED struct DjuiBase* caller) {
+    configVrSpawnWeightFireFlower = sSpawnWeightDraft[0];
+    configVrSpawnWeightHammerSuit = sSpawnWeightDraft[1];
+    configVrSpawnWeightSonicShoes = sSpawnWeightDraft[2];
+    configVrSpawnWeightBigHands = sSpawnWeightDraft[3];
+    configVrSpawnWeightPropeller = sSpawnWeightDraft[4];
+    configVrSpawnWeightPowerStar = sSpawnWeightDraft[5];
+    configfile_save(configfile_name());
+}
 static void djui_panel_vr_spawn_pool_defaults(UNUSED struct DjuiBase* caller) {
+    for (unsigned i = 0; i < 6; ++i) sSpawnWeightDraft[i] = 50;
     configVrSpawnPoolFireFlower = true;
     configVrSpawnPoolHammerSuit = true;
     configVrSpawnPoolSonicShoes = true;
     configVrSpawnPoolBigHands = true;
+    configVrSpawnPoolPropeller = true;
+    configVrSpawnPoolPowerStar = true;
     configVrSpecialRasengan = true;
 }
 
@@ -522,6 +550,10 @@ static void djui_panel_vr_immersion_defaults(struct DjuiBase* caller) {
     configVrExperimentalSideFlipFollow = true;
     configVrExperimentalWallJumpTurn = true;
     configVrPhysicalCrouching = true;
+    configVrPhysicalCrouchDepth = 10;
+    configVrPhysicalJumping = true;
+    configVrJumpUseTriggers = false;
+    configVrPhysicalSwimming = true;
     configVrMovementOverhaul = false;
 }
 
@@ -1470,6 +1502,7 @@ static void djui_vr_timer_names_destroy(struct DjuiBase* caller) {
 static void djui_vr_timer_names_create(struct DjuiBase* caller) {
     struct DjuiThreePanel* panel = djui_panel_menu_create("Name Your Splits", false);
     struct DjuiBase* body = djui_three_panel_get_body(panel);
+    ((struct DjuiFlowLayout*)body)->orderedNavigation = true;
     sVrNamesDestroy = panel->base.destroy;
     panel->base.destroy = djui_vr_timer_names_destroy;
     for (unsigned int i = 0; i < vr_speedrun_total(); ++i) {
@@ -1850,35 +1883,60 @@ static void djui_panel_vr_cheats_create(struct DjuiBase* caller) {
     djui_panel_add(caller, panel, NULL);
 }
 
+static void djui_panel_vr_spawn_heading(struct DjuiBase* body, const char* message) {
+    struct DjuiText* heading = djui_text_create(body, message);
+    djui_base_set_size_type(&heading->base, DJUI_SVT_RELATIVE, DJUI_SVT_ABSOLUTE);
+    djui_base_set_size(&heading->base, 1.0f, 40.0f);
+    djui_base_set_color(&heading->base, 255, 220, 120, 255);
+    djui_text_set_alignment(heading, DJUI_HALIGN_LEFT, DJUI_VALIGN_CENTER);
+}
+
 static void djui_panel_vr_spawn_pool_create(struct DjuiBase* caller) {
+    sSpawnWeightDraft[0] = configVrSpawnWeightFireFlower;
+    sSpawnWeightDraft[1] = configVrSpawnWeightHammerSuit;
+    sSpawnWeightDraft[2] = configVrSpawnWeightSonicShoes;
+    sSpawnWeightDraft[3] = configVrSpawnWeightBigHands;
+    sSpawnWeightDraft[4] = configVrSpawnWeightPropeller;
+    sSpawnWeightDraft[5] = configVrSpawnWeightPowerStar;
     struct DjuiThreePanel* panel =
         djui_panel_menu_create("Power-Up Spawn/Enable", false);
     struct DjuiBase* body = djui_three_panel_get_body(panel);
 
+    djui_panel_vr_spawn_heading(body, "Power-Ups");
     djui_checkbox_create(
         body,
         "Fire Flower",
         &configVrSpawnPoolFireFlower,
         NULL
     );
+    djui_slider_create(body, "Spawn Weight", &sSpawnWeightDraft[0], 1, 100, NULL);
     djui_checkbox_create(
         body,
         "Hammer Suit",
         &configVrSpawnPoolHammerSuit,
         NULL
     );
+    djui_slider_create(body, "Spawn Weight", &sSpawnWeightDraft[1], 1, 100, NULL);
+    djui_checkbox_create(body, "Propeller Mushroom", &configVrSpawnPoolPropeller, NULL);
+    djui_slider_create(body, "Spawn Weight", &sSpawnWeightDraft[4], 1, 100, NULL);
     djui_checkbox_create(
         body,
         "Sonic Shoes",
         &configVrSpawnPoolSonicShoes,
         NULL
     );
+    djui_slider_create(body, "Spawn Weight", &sSpawnWeightDraft[2], 1, 100, NULL);
+    djui_panel_vr_spawn_heading(body, "Specials - Half Spawn Weight");
     djui_checkbox_create(
         body,
         "Big Hands",
         &configVrSpawnPoolBigHands,
         NULL
     );
+    djui_slider_create(body, "Spawn Weight (Special)", &sSpawnWeightDraft[3], 1, 100, NULL);
+    djui_checkbox_create(body, "Power Star", &configVrSpawnPoolPowerStar, NULL);
+    djui_slider_create(body, "Spawn Weight (Special)", &sSpawnWeightDraft[5], 1, 100, NULL);
+    djui_panel_vr_spawn_heading(body, "Gestures");
     djui_checkbox_create(
         body,
         "Rasengan / Rasen-Shuriken",
@@ -1897,7 +1955,7 @@ static void djui_panel_vr_spawn_pool_create(struct DjuiBase* caller) {
         DJUI_BUTTON_STYLE_BACK,
         djui_panel_menu_back
     );
-    djui_panel_add(caller, panel, NULL);
+    djui_panel_add(caller, panel, NULL)->on_panel_destroy = djui_panel_vr_spawn_pool_apply;
 }
 
 static void djui_panel_vr_special_moves_create(
@@ -1961,6 +2019,13 @@ static void djui_panel_vr_special_moves_create(
             VR_SONIC_SHOES_SPEED_MAX,
             NULL
         );
+        djui_checkbox_create(
+            body,
+            "Big Hands 60-Second Timer",
+            &configVrBigHandsLongTimer,
+            NULL
+        );
+        djui_checkbox_create(body, "Power Star 60-Second Timer", &configVrPowerStarLongTimer, NULL);
         djui_button_create(
             body,
             "Power-Up Spawn/Enable",
@@ -2079,6 +2144,12 @@ static void djui_panel_vr_immersion_movement_create(
         &configVrPhysicalCrouching,
         NULL
     );
+    configVrPhysicalCrouchDepth = djui_panel_vr_clamp_uint(configVrPhysicalCrouchDepth, 10U, 50U);
+    djui_slider_create(body, "Physical Crouch Depth", &configVrPhysicalCrouchDepth, 10, 50, NULL);
+    djui_checkbox_create(body, "Physical Jumping", &configVrPhysicalJumping, NULL);
+    djui_checkbox_create(body, "Use Triggers Instead of Grips", &configVrJumpUseTriggers, NULL);
+    djui_vr_timer_help(body, "Must change crouch binding when enabled.", 32);
+    djui_checkbox_create(body, "Physical Swimming", &configVrPhysicalSwimming, NULL);
     djui_checkbox_create(
         body,
         "Carrying-Speed Movement While Holding",
@@ -2225,6 +2296,43 @@ static void djui_panel_vr_effects_create(struct DjuiBase* caller) {
     djui_panel_add(caller, panel, NULL);
 }
 
+static const char* sVrTutorialMessage;
+static size_t sVrTutorialOffset;
+static struct DjuiText* sVrTutorialText;
+static struct DjuiText* sVrTutorialPageLabel;
+
+static void djui_panel_vr_tutorial_refresh(void) {
+    size_t end = djui_tutorial_next(sVrTutorialMessage, sVrTutorialOffset);
+    char page[512], label[64];
+    djui_tutorial_format(page, sizeof(page), sVrTutorialMessage, sVrTutorialOffset, end);
+    djui_text_set_text(sVrTutorialText, page);
+    unsigned current = 1, total = 1;
+    size_t offset = 0, length = strlen(sVrTutorialMessage);
+    while ((offset = djui_tutorial_next(sVrTutorialMessage, offset)) < length) {
+        while (sVrTutorialMessage[offset] == ' ') ++offset;
+        ++total;
+        if (offset <= sVrTutorialOffset) ++current;
+    }
+    snprintf(label, sizeof(label), "Page %u of %u", current, total);
+    djui_text_set_text(sVrTutorialPageLabel, label);
+}
+static void djui_panel_vr_tutorial_next(UNUSED struct DjuiBase* caller) {
+    size_t next = djui_tutorial_next(sVrTutorialMessage, sVrTutorialOffset);
+    while (sVrTutorialMessage[next] == ' ') ++next;
+    if (sVrTutorialMessage[next]) sVrTutorialOffset = next;
+    djui_panel_vr_tutorial_refresh();
+}
+static void djui_panel_vr_tutorial_previous(UNUSED struct DjuiBase* caller) {
+    size_t previous = 0, offset = 0;
+    while (offset < sVrTutorialOffset) {
+        previous = offset;
+        offset = djui_tutorial_next(sVrTutorialMessage, offset);
+        while (sVrTutorialMessage[offset] == ' ') ++offset;
+    }
+    sVrTutorialOffset = previous;
+    djui_panel_vr_tutorial_refresh();
+}
+
 static void djui_panel_vr_tutorial_page(
     struct DjuiBase* caller,
     char* title,
@@ -2233,17 +2341,25 @@ static void djui_panel_vr_tutorial_page(
     struct DjuiThreePanel* panel =
         djui_panel_menu_create(title, false);
     struct DjuiBase* body = djui_three_panel_get_body(panel);
-    struct DjuiText* text = djui_text_create(body, message);
-    djui_base_set_location(&text->base, 0, 0);
+    sVrTutorialMessage = message;
+    sVrTutorialOffset = 0;
+    sVrTutorialPageLabel = djui_text_create(body, "");
+    djui_base_set_size(&sVrTutorialPageLabel->base, DJUI_DEFAULT_PANEL_WIDTH - 64, 35);
+    struct DjuiText* text = djui_text_create(body, "");
+    sVrTutorialText = text;
+    djui_base_set_location(&text->base, 12, 0);
     djui_base_set_size(
         &text->base,
         (DJUI_DEFAULT_PANEL_WIDTH *
-            (configDjuiThemeCenter ? DJUI_THEME_CENTERED_WIDTH : 1)) - 64,
+            (configDjuiThemeCenter ? DJUI_THEME_CENTERED_WIDTH : 1)) - 88,
         300
     );
     djui_base_set_color(&text->base, 235, 235, 235, 255);
     djui_text_set_drop_shadow(text, 32, 32, 32, 180);
     djui_text_set_alignment(text, DJUI_HALIGN_LEFT, DJUI_VALIGN_TOP);
+    djui_panel_vr_tutorial_refresh();
+    djui_button_create(body, "Previous Page", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_previous);
+    djui_button_create(body, "Next Page", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_next);
     djui_button_create(
         body,
         DLANG(MENU, BACK),
@@ -2289,7 +2405,7 @@ static void djui_panel_vr_tutorial_climbing(
     djui_panel_vr_tutorial_page(
         caller,
         "Climbing & Movement",
-        "Hold Grip as a hand reaches a pole, tree, or hangable ceiling. Pull your body by moving that hand, then alternate hands for monkey-bar movement. Let go with both hands to fall; swing and release for a momentum jump when enabled. To climb a ledge, move the headset over its top and release. Standard Climbing and Physical Climbing can be enabled separately; Climb Any Wall or Ceiling is a cheat."
+        "Hold Grip as a hand reaches a pole, tree, or hangable ceiling. Pull your body by moving that hand, then alternate hands. Let go to fall; swing and release for a momentum jump when enabled. A hard swing gives full jump-off ascent; a soft swing gives a shorter release. Each hand attaches independently, including surface-to-tree handoffs with Big Hands or Free Climb. Move the headset over a ledge and release to climb it. Standard and Physical Climbing have separate switches."
     );
 }
 
@@ -2299,7 +2415,7 @@ static void djui_panel_vr_tutorial_water(
     djui_panel_vr_tutorial_page(
         caller,
         "Swimming, Flying & Caps",
-        "Swim and fly in the headset's look direction. Wing Cap flight retains normal momentum unless Free Fly is enabled. With Grab Cap at Any Time enabled, hold Grip and Trigger near your head to take your hat; either button can be pressed first. Release to throw, or return it over your head. Shaking Hat Gives Wing Cap requires this option. A red X on the life icon marks a missing hat."
+        "Button swimming and Wing Cap flight retain their normal VR steering. Optional Physical Swimming uses strokes with headset aiming and an overhead upward-swim gesture; see its tutorial page. Wing Cap flight retains momentum unless Free Fly is enabled. With Grab Cap at Any Time enabled, hold Grip and Trigger near your head to take your hat; either button can be pressed first. Release to throw, or return it over your head. Shaking Hat Gives Wing Cap requires this option. A red X on the life icon marks a missing hat."
     );
 }
 
@@ -2319,7 +2435,7 @@ static void djui_panel_vr_tutorial_ui(
     djui_panel_vr_tutorial_page(
         caller,
         "Menus, HUD & Multiplayer",
-        "Pause opens the in-game menu; B backs out of supported menus. HUD Settings controls opacity, spread, and whether menus and the HUD attach independently to the headset or either hand. Select a text field to open the VR keyboard; Enter confirms. Chat and player lists are available from the online menus. Public standalone lobbies target compatible Android/Quest clients; direct connections can work with matching PC builds."
+        "Pause defaults to left stick click; B backs out of supported menus. Controller Bindings waits for your chosen input. Right-primary still confirms menus when Jump is remapped. HUD Settings controls opacity, spread and attachment. Select a text field for the VR keyboard; Enter confirms. Mic starts listening; press it again to finish and transcribe. Closing the keyboard cancels. Chat and player lists are in the online menus. Use matching builds for multiplayer; special powers are disabled in Regular Public Lobbies."
     );
 }
 
@@ -2375,7 +2491,27 @@ static void djui_panel_vr_tutorial_rasen_shuriken(
 
 static void djui_panel_vr_tutorial_big_hands(struct DjuiBase* caller) {
     djui_panel_vr_tutorial_page(caller, "Big Hands",
-        "Collect Big Hands from enabled special item boxes or the Spawn Menu. The enlarged hands extend your reach: hold Grip at a surface to attach, then pull yourself along it. Alternate hands to climb; each hand can hold a different surface, tree, or hangable. Grip also grabs supported enemies and objects at the visible hand. Make a fist and swing to punch at that same extended reach. Release Grip to let go.");
+        "Big Hands extends grabbing and punching to the visible enlarged hands. Hold Grip at a surface and pull to climb; alternate hands between surfaces, trees and hangables. Release Grip to detach. Lasts 30 seconds, or 60 with Big Hands 60-Second Timer enabled before pickup. This stronger power has half the box-spawn weight of ordinary powers at equal slider values, even with the longer timer. Its enable checkbox and Spawn Menu still work normally.");
+}
+
+static void djui_panel_vr_tutorial_power_star(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Power Star",
+        "Collect the small bouncing star with your body, headset or hand. It grants enemy-contact invincibility, 1.5x running speed and 1.5x jump height, with rainbow shimmer and a torso sparkle trail. Its tint and music fade during the last four seconds; abilities last until the timer ends. Touching enemies deals an attack; one-hit enemies are defeated and Chain Chomps explode. Pits, scripted deaths and course boundaries still apply. Lasts 30 seconds; enable Power Star 60-Second Timer before pickup for 60. Find Power Star and Big Hands together under Specials in Power-Up Spawn/Enable: both have half the ordinary spawn weight at equal settings. Another power-up replaces it. Power Star and Sonic Shoes keep their dedicated songs regardless of Alternate Power-Up Music. Native caps keep their original cap themes.");
+}
+
+static void djui_panel_vr_tutorial_swimming(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Physical Swimming",
+        "On by default for new settings; toggle in VR > Immersion > Movement & Body. No buttons needed: reach away from your upper torso, then pull water toward you. Reach/recovery adds no thrust. Normal strokes follow headset aim; look down to dive. For upward swimming while looking forward, raise your hands overhead and pull down within 20 degrees of vertical. Either hand, alternating hands and both hands work, including surface strokes. Button swimming remains available. Existing saved choices are preserved.");
+}
+
+static void djui_panel_vr_tutorial_jump_crouch(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Physical Jumping & Crouching",
+        "The first 0.9.2 launch enables physical actions once, except crouching. You can disable them again; later launches retain your choice. Hold Grip and punch within 15 degrees of straight up. Either/both hands work; keep one raised to hold Jump, lower/release to shorten it. Lower and punch again for double/triple jumps; a 120 ms landing buffer helps timing. The gesture also wall-kicks during the normal wall-kick window: keep the triggering fist raised for full height, or lower/release for a shorter kick. Use Triggers Instead of Grips is optional: change your crouch binding first. See Physical Crouching & Diving for the other gestures.");
+}
+
+static void djui_panel_vr_tutorial_crouch_dive(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Physical Crouching & Diving",
+        "Immersion > Movement & Body contains Physical Crouching / Ground Pounds, on by default. Crouch Depth defaults to 10% of calibrated height, adjustable from 10 to 50. Head-tilt compensation reduces accidental crouching when looking down. Recenter while standing normally. Airborne crouching requests a ground pound (Propeller uses its held drill instead). For motion diving, punch both fists forward: air dives need 20 cm at 1.65 m/s, ground dives need 13 cm at 1.20 m/s. Headset yaw sets forward, not pitch. Jump gestures take priority. No extra settle timer. Ground and air motion dives have separate switches.");
 }
 
 static void djui_panel_vr_tutorial_speedrun(struct DjuiBase* caller) {
@@ -2386,6 +2522,11 @@ static void djui_panel_vr_tutorial_speedrun(struct DjuiBase* caller) {
 static void djui_panel_vr_tutorial_visuals(struct DjuiBase* caller) {
     djui_panel_vr_tutorial_page(caller, "Visuals & Character Select",
         "Special > Filters includes Cell Shaded, Super Mario Land, Game Boy, and Virtual Boy. Display > Effects offers optional normal maps with separate strength and gloss controls. Immersion's cross-tree option keeps tree billboards fixed in a cross shape. Character Select opens its preview and controls together on a floating theater panel. Close it to return to the regular menus.");
+}
+
+static void djui_panel_vr_tutorial_propeller(struct DjuiBase* caller) {
+    djui_panel_vr_tutorial_page(caller, "Propeller Mushroom",
+        "Lasts 60 seconds. Press Jump again or make another Physical Jump gesture during any normal airtime for one burst, including tiny hops, water exits, slope jumps and lava rebounds. Ground/slope contact, water entry and lava bounces recharge it without extending the timer. No minimum jump height is required. A top stomp on a normally stompable enemy relaunches you at full strength; side hits and Bullies do not. Hold Crouch (or physically crouch) for a fast descent with an opaque tornado spinning three times faster. Release to glide. Ordinary twirling has no crouch drill. Edit/export the Propeller palette: Cap colors the helmet, Emblem colors its rotor. The helmet is hidden in first person. Another power-up replaces this one.");
 }
 
 static void djui_panel_vr_tutorial_moves(
@@ -2403,6 +2544,10 @@ static void djui_panel_vr_tutorial_moves(
         djui_panel_vr_tutorial_sonic_shoes);
     djui_button_create(body, "Big Hands", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_tutorial_big_hands);
+    djui_button_create(body, "Propeller Mushroom", DJUI_BUTTON_STYLE_NORMAL,
+        djui_panel_vr_tutorial_propeller);
+    djui_button_create(body, "Power Star", DJUI_BUTTON_STYLE_NORMAL,
+        djui_panel_vr_tutorial_power_star);
     djui_button_create(body, "Rasengan", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_tutorial_rasengan);
     djui_button_create(body, "Rasen-Shuriken", DJUI_BUTTON_STYLE_NORMAL,
@@ -2421,6 +2566,9 @@ static void djui_panel_vr_tutorial_create(struct DjuiBase* caller) {
     djui_button_create(body, "Hands & Physical Actions", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_physical);
     djui_button_create(body, "Climbing & Movement", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_climbing);
     djui_button_create(body, "Swimming, Flying & Caps", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_water);
+    djui_button_create(body, "Physical Swimming", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_swimming);
+    djui_button_create(body, "Physical Jumping & Crouching", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_jump_crouch);
+    djui_button_create(body, "Physical Crouching & Diving", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_crouch_dive);
     djui_button_create(body, "Objects, Bosses & Bowser", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_bowser);
     djui_button_create(body, "Menus, HUD & Multiplayer", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_ui);
     djui_button_create(body, "Special Moves", DJUI_BUTTON_STYLE_NORMAL, djui_panel_vr_tutorial_moves);
@@ -2444,8 +2592,6 @@ static void djui_panel_vr_setup_create(struct DjuiBase* caller) {
         djui_panel_vr_motion_control_settings_create);
     djui_button_create(body, "Model Settings", DJUI_BUTTON_STYLE_NORMAL,
         djui_panel_vr_model_settings_create);
-    djui_button_create(body, "Immersion", DJUI_BUTTON_STYLE_NORMAL,
-        djui_panel_vr_immersion_create);
     djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK,
         djui_panel_menu_back);
     djui_panel_add(caller, panel, NULL);
@@ -2565,6 +2711,9 @@ void djui_panel_vr_create(struct DjuiBase* caller) {
             DJUI_BUTTON_STYLE_NORMAL,
             djui_panel_vr_timer_create
         );
+
+        djui_button_create(body, "Immersion", DJUI_BUTTON_STYLE_NORMAL,
+            djui_panel_vr_immersion_create);
 
         djui_button_create(
             body,

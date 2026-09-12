@@ -153,6 +153,9 @@ const LevelScript level_main_scripts_entry[] = {
     LOAD_MODEL_FROM_GEO(MODEL_VR_HAMMER,                  vr_hammer_geo),
     LOAD_MODEL_FROM_GEO(MODEL_VR_SONIC_SHOES,             vr_sonic_shoes_geo),
     LOAD_MODEL_FROM_GEO(MODEL_VR_BIG_HANDS,               vr_big_hands_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_VR_PROPELLER_MUSHROOM,       vr_propeller_mushroom_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_VR_PROPELLER_HELMET,         vr_propeller_helmet_geo),
+    LOAD_MODEL_FROM_GEO(MODEL_VR_HAMMER_HELMET,            vr_hammer_helmet_geo),
 
     // CUSTOM MODELS END
 

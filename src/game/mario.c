@@ -36,6 +36,8 @@
 #include "print.h"
 #include "rendering_graph_node.h"
 #include "vr_hand_interaction.h"
+#include "vr_propeller_motion.h"
+#include "actors/group5.h"
 #include "save_file.h"
 #include "sound_init.h"
 #include "rumble_init.h"
@@ -77,14 +79,29 @@ static u8 sVrLateralSideFlipPrimeTicks = 0;
 static u8 sVrLateralSideFlipRequestTicks = 0;
 static struct Object *sVrTwirlTornado = NULL;
 
+Gfx* geo_vr_twirl_tornado(s32 callContext, struct GraphNode* node, UNUSED void* context) {
+    if (callContext != GEO_CONTEXT_RENDER || !gCurGraphNodeObject) return NULL;
+    struct Object* object = (struct Object*)gCurGraphNodeObject;
+    Gfx* dl = alloc_display_list(4 * sizeof(Gfx));
+    if (!dl) return NULL;
+    node->flags = (node->flags & 0xFF) | (LAYER_TRANSPARENT << 8);
+    gDPPipeSync(dl);
+    gDPSetPrimColor(dl + 1, 0, 0, 255, 255, 255, object->oOpacity);
+    gSPDisplayList(dl + 2, vr_twirl_tornado_dl);
+    gSPEndDisplayList(dl + 3);
+    return dl;
+}
+
 static void vr_update_twirl_tornado_effect(struct MarioState *m) {
     if (m == NULL || m->playerIndex != 0) {
         return;
     }
 
+    const bool propeller = m->action == ACT_TWIRLING &&
+        (m->actionArg & VR_PROPELLER_ACTION_ARG) != 0;
     const bool twirling =
         vr_is_active() &&
-        configVrTwirlTornadoEffect &&
+        (configVrTwirlTornadoEffect || propeller) &&
         (m->action == ACT_TWIRLING ||
          m->action == ACT_TORNADO_TWIRLING);
 
@@ -143,7 +160,9 @@ static void vr_update_twirl_tornado_effect(struct MarioState *m) {
     sVrTwirlTornado->oPosZ = headsetPositionValid
         ? headsetPosition[2]
         : m->pos[2];
-    sVrTwirlTornado->oFaceAngleYaw += 0x1800;
+    const bool fastDescent = propeller && (m->input & INPUT_Z_DOWN) != 0;
+    sVrTwirlTornado->oOpacity = vr_propeller_tornado_opacity(fastDescent);
+    sVrTwirlTornado->oFaceAngleYaw += vr_propeller_tornado_spin(fastDescent);
     obj_scale(sVrTwirlTornado, 0.0315f * characterScale);
     obj_update_gfx_pos_and_angle(sVrTwirlTornado);
 }
@@ -692,6 +711,10 @@ s16 vr_get_first_person_view_yaw(void) {
     return vr_get_first_person_view_yaw_from_head_yaw(
         vr_first_person_facing_yaw_offset()
     );
+}
+
+s16 vr_get_first_person_body_base_yaw(void) {
+    return vr_get_first_person_view_yaw_from_head_yaw(0);
 }
 
 s16 vr_get_first_person_headset_yaw(void) {
@@ -1873,6 +1896,17 @@ static u32 set_mario_action_airborne(struct MarioState *m, u32 action, u32 actio
             break;
     }
 
+    if (m->playerIndex == 0 && vr_special_moves_power_star_active()) {
+        switch (action) {
+            case ACT_JUMP: case ACT_HOLD_JUMP: case ACT_DOUBLE_JUMP:
+            case ACT_TRIPLE_JUMP: case ACT_BACKFLIP: case ACT_SIDE_FLIP:
+            case ACT_LONG_JUMP: case ACT_WALL_KICK_AIR: case ACT_TOP_OF_POLE_JUMP:
+            case ACT_STEEP_JUMP: case ACT_WATER_JUMP: case ACT_HOLD_WATER_JUMP:
+                // Height scales with velocity squared; 1.5x velocity is 2.25x height.
+                m->vel[1] *= 1.2247448714f;
+                break;
+        }
+    }
     m->peakHeight = m->pos[1];
     m->flags |= MARIO_UNKNOWN_08;
 
@@ -1974,6 +2008,10 @@ u32 set_mario_action(struct MarioState *m, u32 action, u32 actionArg) {
     smlua_call_event_hooks(HOOK_BEFORE_SET_MARIO_ACTION, m, action, actionArg, &actionOverride);
     if (actionOverride == 1) { return TRUE; }
     if (actionOverride != 0) { action = actionOverride; }
+
+    // Run after mod hooks: rejected water/lava transitions cannot recharge.
+    if ((action & ACT_GROUP_MASK) == ACT_GROUP_SUBMERGED || action == ACT_LAVA_BOOST)
+        vr_special_moves_propeller_recharge(m);
 
     switch (action & ACT_GROUP_MASK) {
         case ACT_GROUP_MOVING:

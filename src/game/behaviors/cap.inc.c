@@ -243,6 +243,10 @@ static void vr_painting_exit_hat_loop(void) {
     o->oInteractionSubtype = 0;
     o->oInteractStatus = 0;
     o->oIntangibleTimer = -1;
+    // Cosmetic cap metadata is independent of gameplay cap ownership/timers.
+    const s32 capAlpha = (o->oBehParams & (MARIO_VANISH_CAP << 8)) ? 128 : 255;
+    o->oOpacity = capAlpha;
+    o->oAnimState = capAlpha < 255 ? 1 : 0;
 
     if (o->oAction == 0) {
         o->oFaceAngleYaw += 0x400;
@@ -276,7 +280,7 @@ static void vr_painting_exit_hat_loop(void) {
         return;
     }
     o->oOpacity = (u8)clamp(
-        255 - fadeFrame * 255 / VR_PAINTING_EXIT_HAT_GROUND_FADE_FRAMES,
+        capAlpha - fadeFrame * capAlpha / VR_PAINTING_EXIT_HAT_GROUND_FADE_FRAMES,
         0,
         255
     );

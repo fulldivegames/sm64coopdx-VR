@@ -10,7 +10,7 @@ const GeoLayout tweester_geo[] = {
 const GeoLayout vr_twirl_tornado_geo[] = {
     GEO_CULLING_RADIUS(2000),
     GEO_OPEN_NODE(),
-        GEO_DISPLAY_LIST(LAYER_TRANSPARENT, vr_twirl_tornado_dl),
+        GEO_ASM(0, geo_vr_twirl_tornado),
     GEO_CLOSE_NODE(),
     GEO_END(),
 };

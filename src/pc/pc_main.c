@@ -98,6 +98,32 @@ static f64 sFrameTimeStart = 0;
 static u32 sDrawnFrames = 0;
 static bool sVrFramePacingEnabled = false;
 static f64 sVrDesktopMirrorNextTime = 0.0;
+static f64 sVrDiagnosticTickTotal, sVrDiagnosticTickMax;
+static f64 sVrDiagnosticPresentTotal, sVrDiagnosticPresentMax;
+static unsigned sVrDiagnosticTicks, sVrDiagnosticPresents;
+static f64 sVrDiagnosticLastReport;
+
+static void vr_report_pc_timings(f64 now) {
+    if (!vr_is_active() || !configVrShowFps) {
+        sVrDiagnosticLastReport = 0;
+    } else {
+        if (sVrDiagnosticLastReport == 0) sVrDiagnosticLastReport = now;
+        if (now - sVrDiagnosticLastReport < 5.0) return;
+        printf("[VR PC timing] game tick avg/max=%.2f/%.2f ms (%u ticks); "
+               "desktop present avg/max=%.2f/%.2f ms (%u presents); "
+               "swap interval=%d scale=%u mirror=%d mirror-fps=%u\n",
+               sVrDiagnosticTicks ? sVrDiagnosticTickTotal / sVrDiagnosticTicks : 0,
+               sVrDiagnosticTickMax, sVrDiagnosticTicks,
+               sVrDiagnosticPresents ? sVrDiagnosticPresentTotal / sVrDiagnosticPresents : 0,
+               sVrDiagnosticPresentMax, sVrDiagnosticPresents,
+               SDL_GL_GetSwapInterval(), configVrRenderScale,
+               configVrDesktopMirror, configVrDesktopMirrorFps);
+        sVrDiagnosticLastReport = now;
+    }
+    sVrDiagnosticTickTotal = sVrDiagnosticTickMax = 0;
+    sVrDiagnosticPresentTotal = sVrDiagnosticPresentMax = 0;
+    sVrDiagnosticTicks = sVrDiagnosticPresents = 0;
+}
 
 bool gGameInited = false;
 bool gGfxInited = false;
@@ -253,62 +279,20 @@ static void select_graphics_backend(void) {
         return;
     }
 
-    int backend = configGraphicsBackend;
+    // This VR distribution always needs a context compatible with its OpenXR
+    // OpenGL binding, even when VR is enabled after starting flat-screen.
+    // Never fall back to DX11 or honor a legacy DX11 command-line selection.
+    if (configGraphicsBackend != GAPI_GL
 #if defined(_WIN32)
-    if (gCLIOpts.backend != -1) { backend = gCLIOpts.backend; }
+        || (gCLIOpts.backend != -1 && gCLIOpts.backend != GAPI_GL)
 #endif
-
-    /*
-     * The desktop OpenXR bridge currently supplies XR_KHR_opengl_enable and
-     * creates its swapchains from the active OpenGL context. Selecting DX11
-     * before the context is created therefore makes VR activation fail later
-     * with a generic graphics-session error. Keep the override in-memory so
-     * this run is valid without changing Windows' OpenXR default runtime.
-     */
-    const bool vrRequested = configVrAutoStart || vr_is_active();
-    if (vrRequested && backend != GAPI_GL) {
-        printf(
-            "[VR] VR startup requires OpenGL; overriding the selected "
-            "graphics backend for this run.\n"
-        );
-        backend = GAPI_GL;
-        configGraphicsBackend = GAPI_GL;
+    ) {
+        printf("[VR] This build requires OpenGL; ignoring the incompatible renderer selection.\n");
     }
-
-#if defined(_WIN32)
-    if (backend == GAPI_GL && !gfx_sdl_check_opengl_compatibility()) {
-        if (vrRequested) {
-            printf(
-                "[VR] OpenGL compatibility check failed while VR was "
-                "requested; keeping OpenGL so the VR failure is reported "
-                "instead of silently switching to DirectX 11.\n"
-            );
-        } else {
-            configGraphicsBackend = GAPI_D3D11;
-            backend = GAPI_D3D11;
-        }
-    }
-#endif
-
-    switch (backend) {
-        case GAPI_GL:
-            gWindowApi = &gfx_sdl;
-            gRenderApi = &gfx_opengl_api;
-            gAudioApi  = &audio_sdl;
-            break;
-#if defined(_WIN32)
-        case GAPI_D3D11:
-            gWindowApi = &gfx_dxgi;
-            gRenderApi = &gfx_direct3d11_api;
-            gAudioApi  = &audio_sdl;
-            break;
-#endif
-        default:
-            gWindowApi = &gfx_sdl;
-            gRenderApi = &gfx_opengl_api;
-            gAudioApi  = &audio_sdl;
-            break;
-    }
+    configGraphicsBackend = GAPI_GL;
+    gWindowApi = &gfx_sdl;
+    gRenderApi = &gfx_opengl_api;
+    gAudioApi = &audio_sdl;
 
     if (!gAudioApi->init()) {
         gAudioApi = &audio_null;
@@ -499,7 +483,15 @@ void produce_interpolation_frames_and_delay(void) {
         }
         vr_end_frame();
         if (presentDesktopFrame) {
+            const bool measurePresent = vrFramePaced && configVrShowFps;
+            const f64 presentStart = measurePresent ? clock_elapsed_f64() : 0;
             gfx_display_frame();
+            if (measurePresent) {
+                const f64 elapsed = (clock_elapsed_f64() - presentStart) * 1000.0;
+                sVrDiagnosticPresentTotal += elapsed;
+                sVrDiagnosticPresentMax = fmax(sVrDiagnosticPresentMax, elapsed);
+                ++sVrDiagnosticPresents;
+            }
         }
 
         // delay if our framerate is capped
@@ -520,6 +512,7 @@ void produce_interpolation_frames_and_delay(void) {
     // compute and update the frame rate every second
     if ((curTime = clock_elapsed_f64()) >= sFpsTimeLast + 1.0) {
         compute_fps(curTime);
+        vr_report_pc_timings(curTime);
     }
 
     // advance frame start time
@@ -592,6 +585,8 @@ void produce_one_frame(void) {
         return;
     }
 
+    const bool measureTick = vr_is_active() && configVrShowFps;
+    const f64 tickStart = measureTick ? clock_elapsed_f64() : 0;
     // Execute native-menu Lua commands at a game-tick boundary, never while
     // DJUI is building a render list or invoking HUD hooks.
     exec_queued_chat_command();
@@ -609,6 +604,12 @@ void produce_one_frame(void) {
         CTX_EXTENT(CTX_AUDIO, buffer_audio);
     }
 
+    if (measureTick) {
+        const f64 elapsed = (clock_elapsed_f64() - tickStart) * 1000.0;
+        sVrDiagnosticTickTotal += elapsed;
+        sVrDiagnosticTickMax = fmax(sVrDiagnosticTickMax, elapsed);
+        ++sVrDiagnosticTicks;
+    }
     CTX_EXTENT(CTX_RENDER, produce_interpolation_frames_and_delay);
 }
 

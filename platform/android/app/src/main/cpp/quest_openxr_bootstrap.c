@@ -25,6 +25,8 @@ extern void quest_vr_bridge_update_views(
     const float positions[2][3], const float rotations[2][4],
     const float fovs[2][4], const uint32_t widths[2],
     const uint32_t heights[2]);
+extern void quest_vr_bridge_reference_space_change(int64_t time);
+extern void quest_vr_bridge_prepare_tracking(int64_t displayTime);
 
 #define LOG_TAG "SM64CoopDXVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -1226,13 +1228,7 @@ static bool render_frame(QuestApp *app) {
             XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
         if (view_count == QUEST_VIEW_COUNT
             && (view_state.viewStateFlags & required_flags) == required_flags) {
-            if (app->session_state == XR_SESSION_STATE_FOCUSED &&
-                app->activity_resumed && app->window_ready) {
-                quest_input_update(app->session, app->local_space,
-                                   frame_state.predictedDisplayTime);
-            } else {
-                quest_input_suspend();
-            }
+            quest_vr_bridge_prepare_tracking(frame_state.predictedDisplayTime);
             float positions[2][3];
             float rotations[2][4];
             float fovs[2][4];
@@ -1253,6 +1249,15 @@ static bool render_frame(QuestApp *app) {
                 heights[eye] = (uint32_t)app->swapchains[eye].height;
             }
             quest_vr_bridge_update_views(positions, rotations, fovs, widths, heights);
+            // Capture the new head reference before transforming controllers;
+            // otherwise a recenter mixes old-space hands with a new-space head.
+            if (app->session_state == XR_SESSION_STATE_FOCUSED &&
+                app->activity_resumed && app->window_ready) {
+                quest_input_update(app->session, app->local_space,
+                                   frame_state.predictedDisplayTime);
+            } else {
+                quest_input_suspend();
+            }
             quest_game_prepare_vr_frame();
             for (uint32_t eye = 0; eye < QUEST_VIEW_COUNT; ++eye) {
                 if (!render_eye(app, eye)) {
@@ -1325,6 +1330,13 @@ static bool poll_openxr_events(QuestApp *app) {
             } else if (changed->state == XR_SESSION_STATE_EXITING
                        || changed->state == XR_SESSION_STATE_LOSS_PENDING) {
                 app->exit_requested = true;
+            }
+        } else if (event.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
+            const XrEventDataReferenceSpaceChangePending *changed =
+                (const XrEventDataReferenceSpaceChangePending *)&event;
+            if (changed->session == app->session &&
+                changed->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                quest_vr_bridge_reference_space_change(changed->changeTime);
             }
         } else if (event.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
             app->exit_requested = true;

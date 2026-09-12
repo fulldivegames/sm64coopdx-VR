@@ -54,7 +54,8 @@ static void djui_cursor_base_hover_location(struct DjuiBase* base, f32* x, f32* 
 }
 
 void djui_cursor_input_controlled_center(struct DjuiBase* base) {
-    if (!sCursorMouseControlled && (!base || (base && base->interactable && base->interactable->enabled))) {
+    // Clearing a destroyed/closed selection is required even in mouse mode.
+    if (!base || (!sCursorMouseControlled && base->interactable && base->interactable->enabled)) {
         sInputControlledBase = base;
         djui_cursor_set_visible(base != NULL);
     }
@@ -121,7 +122,10 @@ void djui_cursor_move(s8 xDir, s8 yDir) {
     if (xDir == 0 && yDir == 0) { return; }
 
     struct DjuiBase* pick = NULL;
-    djui_cursor_move_check(xDir, yDir, &pick, &gDjuiRoot->base);
+    if (sCursorMouseControlled || yDir == 0 ||
+        !djui_flow_layout_navigate(sInputControlledBase, yDir, &pick)) {
+        djui_cursor_move_check(xDir, yDir, &pick, &gDjuiRoot->base);
+    }
     if (pick != NULL) {
         sCursorMouseControlled = false;
         djui_cursor_input_controlled_center(pick);

@@ -227,6 +227,10 @@ void patch_paintings_init(struct Painting *painting) {
     painting->ripples.sVertexSwaps = 0;
     painting->ripples.sVerticesCur = painting->ripples.sVertexBuffers[0];
     painting->ripples.sVerticesPrev = NULL;
+    painting->ripples.sVerticesPtr[0] = NULL;
+    painting->ripples.sVerticesPtr[1] = NULL;
+    painting->ripples.sVerticesCount = 0;
+    painting->ripples.sVerticesFirstCount = 0;
 }
 
 void patch_paintings_before(void) {
@@ -251,6 +255,7 @@ void patch_paintings_before(void) {
         painting->ripples.sVerticesPtr[0] = NULL;
         painting->ripples.sVerticesPtr[1] = NULL;
         painting->ripples.sVerticesCount = 0;
+        painting->ripples.sVerticesFirstCount = 0;
 
         currPItem = currPItem->nextPaintingItem;
         if (currPItem == NULL || currPItem == &paintingZero) {
@@ -269,10 +274,13 @@ void patch_paintings_interpolated(f32 delta) {
             break;
         }
 
-        if (painting->ripples.sVerticesPtr[0] != NULL && painting->ripples.sVerticesPrev != NULL && painting->ripples.sVertexSwaps > 2) {
+        if (painting->ripples.sVerticesPrevTimestamp == gGlobalTimer &&
+            painting->ripples.sVerticesCount > 0 &&
+            painting->ripples.sVerticesCount <= 2 * 264 * 3 &&
+            painting->ripples.sVerticesPtr[0] != NULL && painting->ripples.sVerticesPrev != NULL && painting->ripples.sVertexSwaps > 2) {
             s32 i;
             if (painting->ripples.sVerticesPtr[1] != NULL) {
-                for (i = 0; i < painting->ripples.sVerticesCount / 2; i++) {
+                for (i = 0; i < painting->ripples.sVerticesFirstCount; i++) {
                     Vec3f obInterp;
                     delta_interpolate_vec3f(obInterp, painting->ripples.sVerticesPrev[i].ob, painting->ripples.sVerticesCur[i].ob, delta);
                     s8 nInterp[3];
@@ -288,8 +296,8 @@ void patch_paintings_interpolated(f32 delta) {
                     s8 nInterp[3];
                     delta_interpolate_normal(nInterp, painting->ripples.sVerticesPrev[i].n, painting->ripples.sVerticesCur[i].n, delta);
                     for (u8 j = 0; j < 3; j++) {
-                        painting->ripples.sVerticesPtr[1][i - painting->ripples.sVerticesCount / 2].n.ob[j] = obInterp[j];
-                        painting->ripples.sVerticesPtr[1][i - painting->ripples.sVerticesCount / 2].n.n[j]  = nInterp[j];
+                        painting->ripples.sVerticesPtr[1][i - painting->ripples.sVerticesFirstCount].n.ob[j] = obInterp[j];
+                        painting->ripples.sVerticesPtr[1][i - painting->ripples.sVerticesFirstCount].n.n[j]  = nInterp[j];
                     }
                 }
             } else {
@@ -1360,8 +1368,19 @@ Gfx *render_painting(struct Painting *painting, u8 *img, s16 tWidth, s16 tHeight
         gSP1Triangle(gfx++, group * 3, group * 3 + 1, group * 3 + 2, 0);
     }
 
-    if (painting->ripples.sVerticesCount >= numVtx * 2) {
+    if (painting->ripples.sVerticesPtr[1] != NULL) {
+        // A repeated graph visit must start a new pair, never a third slot.
         painting->ripples.sVerticesCount = 0;
+        painting->ripples.sVerticesPtr[0] = NULL;
+        painting->ripples.sVerticesPtr[1] = NULL;
+    }
+    if (numVtx <= 0 || painting->ripples.sVerticesCount + numVtx > 2 * 264 * 3) {
+        painting->ripples.sVerticesPrev = NULL;
+        painting->ripples.sVerticesPtr[0] = NULL;
+        painting->ripples.sVerticesPtr[1] = NULL;
+        painting->ripples.sVerticesCount = 0;
+        gSPEndDisplayList(gfx);
+        return dlist;
     }
     for (map = 0; map < numVtx; map++) {
         Vtx* v = &verts[map];
@@ -1383,7 +1402,9 @@ Gfx *render_painting(struct Painting *painting, u8 *img, s16 tWidth, s16 tHeight
         }
     }
 
-    painting->ripples.sVerticesPtr[painting->ripples.sVerticesCount / numVtx] = verts;
+    const s32 section = painting->ripples.sVerticesPtr[0] != NULL ? 1 : 0;
+    painting->ripples.sVerticesPtr[section] = verts;
+    if (section == 0) painting->ripples.sVerticesFirstCount = numVtx;
     painting->ripples.sVerticesCount += numVtx;
 
     gSPEndDisplayList(gfx);

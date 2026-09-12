@@ -1,0 +1,39 @@
+Physical Jumping
+
+Enabled by default for new settings; toggle in VR Settings > Immersion > Movement & Body.
+The first 0.9.2 launch enables physical actions once (not crouching). You can
+disable them again; subsequent launches preserve that choice.
+While Mario is on land, hold grip on either controller and punch straight
+upward toward/above head height. Trigger is not required. Keep that hand raised
+to hold jump; pull it back down or release grip for a shorter jump.
+The normal jump binding continues to work independently.
+Use Triggers Instead of Grips switches this gesture to triggers, including
+wall kicks. It is off by default; change your crouch binding before enabling.
+Grabbing and physical punching continue to use grips.
+Punching both hands up together triggers one jump, not two. Either raised hand
+can sustain that jump; lower both hands or release both grips to shorten it.
+
+Lower and punch again after landing, using either hand or alternating hands.
+This supplies normal jump-button presses, preserving the game's speed/timing
+requirements for double/triple jumps. Triple jumps retain their native arc.
+Keeping a hand raised through landing does not cause automatic hopping.
+A completed gesture up to 120 ms before landing is buffered until contact.
+Physical jump chains allow about 67 ms extra after the usual late window.
+This does not permit free midair jumps or remove the triple-jump speed rule.
+The upward gesture also performs wall kicks within the normal wall-kick window.
+Keep the triggering fist raised to sustain the full wall kick. Lower it or
+release the control for a shorter kick; landing clears the hold.
+With Propeller Mushroom active, another physical jump gesture in the air
+activates its burst. Lower/rearm the hand first, or use the other hand.
+
+The gesture is disabled in menus, underwater, while physically climbing,
+while holding an object, and during cutscenes/death. Tracking loss and
+recentering clear pending gestures. Recognized upward jump strokes do not
+also queue an ordinary physical punch from the same hand.
+
+Initial detection tuning: 12 cm upward travel within 0.4 seconds, upward
+speed at least 0.85 m/s, hand reaching within 15 cm below headset height.
+The punch must remain within 15 degrees of straight up until it triggers;
+forward/diagonal motion resets the pending gesture.
+Lowering 10 cm from the raised peak releases jump; lowering 14 cm rearms.
+These are tracking-space distances, independent of Big Hands' visual reach.

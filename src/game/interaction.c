@@ -906,6 +906,7 @@ u32 should_push_or_pull_door(struct MarioState *m, struct Object *o) {
 
 u32 take_damage_from_interact_object(struct MarioState *m) {
     if (!m || m->interactObj == NULL) { return 0; }
+    if (m->playerIndex == 0 && vr_special_moves_power_star_active()) return 0;
     s32 shake;
     s32 damage = m->interactObj->oDamageOrCoinValue;
 
@@ -2025,6 +2026,18 @@ u32 interact_mr_blizzard(struct MarioState *m, UNUSED u32 interactType, struct O
     return FALSE;
 }
 
+#include "vr_propeller_stomp.h"
+
+static bool vr_propeller_enemy_stomp(struct MarioState* m, struct Object* o, u32 interaction) {
+    // Only the two native stompable-enemy handlers call this. In particular,
+    // Bully, breakable-box, PvP and spiny handlers never gain this rebound.
+    return m->playerIndex == 0 && vr_special_moves_propeller_active() &&
+        !m->heldObj && m->health > 0x100 && (m->action & ACT_FLAG_AIR) &&
+        (interaction & (INT_HIT_FROM_ABOVE | INT_TWIRL)) &&
+        vr_propeller_top_contact(m->pos[0] - o->oPosX, m->pos[2] - o->oPosZ,
+            m->pos[1], m->vel[1], o->oPosY, o->hitboxHeight, o->hitboxRadius);
+}
+
 u32 interact_hit_from_below(struct MarioState *m, UNUSED u32 interactType, struct Object *o) {
     if (!m || !o) { return FALSE; }
     UNUSED u32 unused;
@@ -2037,9 +2050,17 @@ u32 interact_hit_from_below(struct MarioState *m, UNUSED u32 interactType, struc
     }
 
     if (interaction & INT_ANY_ATTACK) {
+        const bool propellerStomp = vr_propeller_enemy_stomp(m, o, interaction);
         queue_rumble_data_mario(m, 5, 80);
         attack_object(m, o, interaction);
         bounce_back_from_attack(m, interaction);
+
+        if (propellerStomp) {
+            bounce_off_object(m, o, 75.0f);
+            reset_mario_pitch(m);
+            vr_special_moves_propeller_stomp_burst(m);
+            return TRUE;
+        }
 
         if (interaction & INT_HIT_FROM_BELOW) {
             hit_object_from_below(m, o);
@@ -2078,9 +2099,17 @@ u32 interact_bounce_top(struct MarioState *m, UNUSED u32 interactType, struct Ob
     }
 
     if (interaction & INT_ATTACK_NOT_FROM_BELOW) {
+        const bool propellerStomp = vr_propeller_enemy_stomp(m, o, interaction);
         queue_rumble_data_mario(m, 5, 80);
         attack_object(m, o, interaction);
         bounce_back_from_attack(m, interaction);
+
+        if (propellerStomp) {
+            bounce_off_object(m, o, 75.0f);
+            reset_mario_pitch(m);
+            vr_special_moves_propeller_stomp_burst(m);
+            return TRUE;
+        }
 
         if (interaction & INT_HIT_FROM_ABOVE) {
             if (o->oInteractionSubtype & INT_SUBTYPE_TWIRL_BOUNCE) {
@@ -2558,6 +2587,8 @@ void mario_process_interactions(struct MarioState *m) {
     // VR motion punches use the tracked fist position rather than Mario's
     // hidden body hitbox or punch animation.
     vr_hand_interaction_update(m);
+    if (m->playerIndex == 0 && vr_special_moves_power_star_active())
+        gInteractionInvulnerable = TRUE;
 
     if (m->skipWarpInteractionsTimer) {
         m->skipWarpInteractionsTimer--;
@@ -2607,6 +2638,10 @@ void mario_process_interactions(struct MarioState *m) {
                     bool allowInteract = true;
                     smlua_call_event_hooks(HOOK_ALLOW_INTERACT, m, object, interactType, &allowInteract);
                     if (allowInteract) {
+                        if (vr_special_moves_power_star_attack(m, object)) {
+                            smlua_call_event_hooks(HOOK_ON_INTERACT, m, object, interactType, true);
+                            continue;
+                        }
                         if (sInteractionHandlers[i].handler(m, interactType, object)) {
                             smlua_call_event_hooks(HOOK_ON_INTERACT, m, object, interactType, true);
                             break;

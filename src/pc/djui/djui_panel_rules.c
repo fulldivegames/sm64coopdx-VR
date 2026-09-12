@@ -4,6 +4,7 @@
 #include "djui_panel_menu.h"
 #include "djui_panel_rules.h"
 #include "djui_panel_join_lobbies.h"
+#include "pc/vr/vr.h"
 
 #ifdef COOPNET
 static char sRules[1024];
@@ -24,6 +25,20 @@ void djui_panel_rules_create(struct DjuiBase* caller) {
     struct DjuiThreePanel* panel = djui_panel_menu_create(DLANG(RULES, RULES_TITLE), false);
     struct DjuiBase* body = djui_three_panel_get_body(panel);
     struct DjuiBase* defaultBase = NULL;
+    if (vr_is_active()) {
+        struct DjuiText* rules = djui_text_create(body, "Be nice and have fun.");
+        djui_base_set_size(&rules->base, DJUI_DEFAULT_PANEL_WIDTH - 64, 70);
+        djui_text_set_alignment(rules, DJUI_HALIGN_CENTER, DJUI_VALIGN_CENTER);
+        if (configRulesVersion != RULES_VERSION) {
+            struct DjuiButton* accept = djui_button_create(body, "OK",
+                DJUI_BUTTON_STYLE_NORMAL, djui_panel_rules_accept);
+            defaultBase = &accept->base;
+        }
+        djui_button_create(body, DLANG(MENU, BACK), DJUI_BUTTON_STYLE_BACK, djui_panel_menu_back);
+        panel->temporary = true;
+        djui_panel_add(caller, panel, defaultBase);
+        return;
+    }
     {
 #ifdef __ANDROID__
         if (configRulesVersion != RULES_VERSION) {

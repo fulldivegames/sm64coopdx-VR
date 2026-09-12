@@ -189,6 +189,15 @@ extern const Gfx vr_sonic_shoe_left_dl[];
 extern const Gfx vr_sonic_shoe_right_dl[];
 extern const Gfx vr_hammer_dl[];
 extern const GeoLayout vr_big_hands_geo[];
+extern const GeoLayout vr_propeller_mushroom_geo[];
+extern const Gfx vr_propeller_helmet_dl[];
+extern const Gfx vr_propeller_rotor_dl[];
+extern ALIGNED8 const Texture vr_propeller_mushroom_texture[];
+extern const Gfx vr_propeller_mushroom_dl[];
+extern const Gfx vr_hammer_helmet_dl[];
+extern const Gfx vr_propeller_held_helmet_dl[];
+extern const GeoLayout vr_propeller_helmet_geo[];
+extern const GeoLayout vr_hammer_helmet_geo[];
 extern const Gfx mushroom_1up_seg3_dl_0302A628[];
 extern const Gfx mushroom_1up_seg3_dl_0302A660[];
 

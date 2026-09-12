@@ -1813,6 +1813,11 @@ const Gfx dl_hud_img_end[] = {
 // 0x0200ED00 - 0x0200ED38
 const Gfx dl_rgba16_text_begin[] = {
     gsDPPipeSync(),
+    gsSPClearGeometryMode(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_ZBUFFER | G_CULL_BOTH),
+    gsDPSetCycleType(G_CYC_1CYCLE),
+    gsDPSetAlphaCompare(G_AC_NONE),
+    gsDPSetTextureLUT(G_TT_NONE),
+    gsDPSetTextureLOD(G_TL_TILE),
     gsDPSetTexturePersp(G_TP_NONE),
     gsDPSetCombineMode(G_CC_FADEA, G_CC_FADEA),
     gsDPSetEnvColor(255, 255, 255, 255),
@@ -1908,7 +1913,13 @@ const Gfx dl_ia_text_end[] = {
 #elif defined(VERSION_US)
 const Gfx dl_ia_text_begin[] = {
     gsDPPipeSync(),
-    gsSPClearGeometryMode(G_LIGHTING),
+    // Text must not inherit fog/environment mapping from the previous room.
+    gsSPClearGeometryMode(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_ZBUFFER | G_CULL_BOTH),
+    gsDPSetCycleType(G_CYC_1CYCLE),
+    gsDPSetAlphaCompare(G_AC_NONE),
+    gsDPSetTexturePersp(G_TP_NONE),
+    gsDPSetTextureLUT(G_TT_NONE),
+    gsDPSetTextureLOD(G_TL_TILE),
     gsDPSetCombineMode(G_CC_FADEA, G_CC_FADEA),
     gsDPSetEnvColor(255, 255, 255, 255),
     gsDPSetRenderMode(G_RM_XLU_SURF, G_RM_XLU_SURF2),

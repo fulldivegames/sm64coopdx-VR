@@ -117,6 +117,12 @@ bool         configVrSpecialFireFlowerMusic       = true;
 bool         configVrAlternatePowerUpMusic        = false;
 bool         configVrSpecialHammerSuit              = true;
 bool         configVrSpecialSonicShoes              = true;
+bool         configVrBigHandsLongTimer              = false;
+bool         configVrSpawnPoolPropeller             = true;
+bool         configVrSpawnPoolPowerStar             = true;
+bool         configVrPowerStarLongTimer             = false;
+unsigned int configVrSpawnWeightPowerStar           = 50;
+unsigned int configVrSpawnWeightPropeller           = 50;
 unsigned int configVrSonicShoesSpeed                = VR_SONIC_SHOES_SPEED_DEFAULT;
 unsigned int configVrBigHandsReach                 = VR_BIG_HANDS_REACH_DEFAULT;
 bool         configVrSpecialRasengan               = true;
@@ -127,6 +133,11 @@ bool         configVrSpawnPoolFireFlower           = true;
 bool         configVrSpawnPoolHammerSuit           = true;
 bool         configVrSpawnPoolSonicShoes           = true;
 bool         configVrSpawnPoolBigHands             = true;
+unsigned int configVrSpawnWeightFireFlower = 50;
+unsigned int configVrSpawnWeightHammerSuit = 50;
+unsigned int configVrSpawnWeightSonicShoes = 50;
+unsigned int configVrSpawnWeightBigHands = 50;
+static unsigned int configVrSpawnWeightScale = 0;
 bool         configVrDisableFog                   = true;
 bool         configVrDesktopMirror                = true;
 unsigned int configVrDesktopMirrorFps             = 60;
@@ -201,6 +212,7 @@ static unsigned int sConfigVrStarFocusDefaultVersion = 0;
 static unsigned int sConfigVrEffectsDefaultVersion = 0;
 static unsigned int sConfigVrBigHandsReachVersion = 0;
 static unsigned int sConfigVrSpawnPoolVersion = 0;
+static unsigned int sConfigVrPhysicalActionsVersion = 0;
 unsigned int configVrGloveSize                    = 70;
 unsigned int configVrLeftGloveRotationX           = 180;
 unsigned int configVrLeftGloveRotationY           = 0;
@@ -235,6 +247,10 @@ bool         configVrTopPoleFlipBody              = false;
 bool         configVrHideBodyOnLedge              = true;
 bool         configVrTwirlTornadoEffect           = true;
 bool         configVrPhysicalCrouching             = true;
+unsigned int configVrPhysicalCrouchDepth           = 10;
+bool         configVrPhysicalJumping               = true;
+bool         configVrJumpUseTriggers               = false;
+bool         configVrPhysicalSwimming              = true;
 bool         configVrOriginalMarioMovement        = false;
 unsigned int configVrBackpedalSpeed               = VR_BACKPEDAL_SPEED_DEFAULT;
 bool         configShowPing                       = false;
@@ -431,6 +447,8 @@ bool         configMenuRandom                     = false;
 bool         configMenuDemos                      = false;
 bool         configDisablePopups                  = false;
 char         configLanguage[MAX_CONFIG_STRING]    = "";
+// Old profiles have already completed setup. Only a missing config opts in.
+bool configWelcomeAcknowledged = true;
 bool         configForce4By3                      = false;
 bool         configDynosLocalPlayerModelOnly      = false;
 unsigned int configPvpType                        = PLAYER_PVP_CLASSIC;
@@ -504,6 +522,12 @@ static const struct ConfigOption options[] = {
     {.name = "vr_alternate_power_up_music",     .type = CONFIG_TYPE_BOOL, .boolValue = &configVrAlternatePowerUpMusic},
     {.name = "vr_special_hammer_suit",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialHammerSuit},
     {.name = "vr_special_sonic_shoes",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialSonicShoes},
+    {.name = "vr_big_hands_long_timer",          .type = CONFIG_TYPE_BOOL, .boolValue = &configVrBigHandsLongTimer},
+    {.name = "vr_power_star_long_timer", .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPowerStarLongTimer},
+    {.name = "vr_spawn_pool_power_star", .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpawnPoolPowerStar},
+    {.name = "vr_spawn_weight_power_star", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightPowerStar},
+    {.name = "vr_spawn_pool_propeller", .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpawnPoolPropeller},
+    {.name = "vr_spawn_weight_propeller", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightPropeller},
     {.name = "vr_sonic_shoes_speed_v3",          .type = CONFIG_TYPE_UINT, .uintValue = &configVrSonicShoesSpeed},
     {.name = "vr_big_hands_reach",               .type = CONFIG_TYPE_UINT, .uintValue = &configVrBigHandsReach},
     {.name = "vr_special_rasengan",             .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpecialRasengan},
@@ -514,6 +538,11 @@ static const struct ConfigOption options[] = {
     {.name = "vr_spawn_pool_hammer_suit",        .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpawnPoolHammerSuit},
     {.name = "vr_spawn_pool_sonic_shoes",        .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpawnPoolSonicShoes},
     {.name = "vr_spawn_pool_big_hands",          .type = CONFIG_TYPE_BOOL, .boolValue = &configVrSpawnPoolBigHands},
+    {.name = "vr_spawn_weight_fire_flower", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightFireFlower},
+    {.name = "vr_spawn_weight_hammer_suit", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightHammerSuit},
+    {.name = "vr_spawn_weight_sonic_shoes", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightSonicShoes},
+    {.name = "vr_spawn_weight_big_hands", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightBigHands},
+    {.name = "vr_spawn_weight_scale", .type = CONFIG_TYPE_UINT, .uintValue = &configVrSpawnWeightScale},
     {.name = "vr_disable_fog",                  .type = CONFIG_TYPE_BOOL, .boolValue = &configVrDisableFog},
     {.name = "vr_desktop_mirror",              .type = CONFIG_TYPE_BOOL, .boolValue = &configVrDesktopMirror},
     {.name = "vr_desktop_mirror_fps",          .type = CONFIG_TYPE_UINT, .uintValue = &configVrDesktopMirrorFps},
@@ -586,6 +615,7 @@ static const struct ConfigOption options[] = {
     {.name = "vr_effects_default_version",     .type = CONFIG_TYPE_UINT, .uintValue = &sConfigVrEffectsDefaultVersion},
     {.name = "vr_big_hands_reach_version",     .type = CONFIG_TYPE_UINT, .uintValue = &sConfigVrBigHandsReachVersion},
     {.name = "vr_spawn_pool_version",            .type = CONFIG_TYPE_UINT, .uintValue = &sConfigVrSpawnPoolVersion},
+    {.name = "vr_physical_actions_version",      .type = CONFIG_TYPE_UINT, .uintValue = &sConfigVrPhysicalActionsVersion},
     {.name = "vr_glove_size",                  .type = CONFIG_TYPE_UINT, .uintValue = &configVrGloveSize},
     {.name = "vr_left_glove_rotation_x",       .type = CONFIG_TYPE_UINT, .uintValue = &configVrLeftGloveRotationX},
     {.name = "vr_left_glove_rotation_y",       .type = CONFIG_TYPE_UINT, .uintValue = &configVrLeftGloveRotationY},
@@ -620,6 +650,10 @@ static const struct ConfigOption options[] = {
     {.name = "vr_hide_body_on_ledge",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrHideBodyOnLedge},
     {.name = "vr_twirl_tornado_effect",         .type = CONFIG_TYPE_BOOL, .boolValue = &configVrTwirlTornadoEffect},
     {.name = "vr_physical_crouching",           .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPhysicalCrouching},
+    {.name = "vr_physical_crouch_depth", .type = CONFIG_TYPE_UINT, .uintValue = &configVrPhysicalCrouchDepth},
+    {.name = "vr_physical_jumping", .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPhysicalJumping},
+    {.name = "vr_jump_use_triggers", .type = CONFIG_TYPE_BOOL, .boolValue = &configVrJumpUseTriggers},
+    {.name = "vr_physical_swimming", .type = CONFIG_TYPE_BOOL, .boolValue = &configVrPhysicalSwimming},
     {.name = "vr_original_mario_movement",       .type = CONFIG_TYPE_BOOL, .boolValue = &configVrOriginalMarioMovement},
     {.name = "vr_backpedal_speed",              .type = CONFIG_TYPE_UINT, .uintValue = &configVrBackpedalSpeed},
     {.name = "show_ping",                      .type = CONFIG_TYPE_BOOL, .boolValue = &configShowPing},
@@ -751,6 +785,7 @@ static const struct ConfigOption options[] = {
     // {.name = "coop_menu_demos",                .type = CONFIG_TYPE_BOOL,   .boolValue   = &configMenuDemos},
     {.name = "disable_popups",                 .type = CONFIG_TYPE_BOOL,   .boolValue   = &configDisablePopups},
     {.name = "language",                       .type = CONFIG_TYPE_STRING, .stringValue = (char*)&configLanguage, .maxStringLength = MAX_CONFIG_STRING},
+    {.name = "welcome_acknowledged", .type = CONFIG_TYPE_BOOL, .boolValue = &configWelcomeAcknowledged},
     {.name = "force_4by3",                     .type = CONFIG_TYPE_BOOL,   .boolValue   = &configForce4By3},
     {.name = "dynos_local_player_model_only",  .type = CONFIG_TYPE_BOOL,   .boolValue   = &configDynosLocalPlayerModelOnly},
     // CoopNet settings
@@ -1214,9 +1249,8 @@ static void configfile_migrate_vr_star_focus_default(void) {
         return;
     }
 
-    // Star focus previously shipped enabled. Turn that former default off
-    // once for upgraded installs; subsequent player changes are preserved.
-    configVrImmersiveStarSpawnFocus = false;
+    // The initializer supplies the fresh-install default. Preserve a loaded
+    // preference even when upgrading a config without this migration marker.
     sConfigVrStarFocusDefaultVersion = 1;
 }
 
@@ -1326,6 +1360,8 @@ static void configfile_load_internal(const char *filename, bool* error) {
     char *line;
     unsigned int temp;
     *error = false;
+    unsigned int suppliedSpawnWeights = 0;
+    configVrSpawnWeightScale = 0;
 
 #ifdef DEVELOPMENT
     printf("Loading configuration from '%s'\n", filename);
@@ -1333,6 +1369,8 @@ static void configfile_load_internal(const char *filename, bool* error) {
 
     file = fs_open(filename);
     if (file == NULL) {
+        configWelcomeAcknowledged = false;
+        configVrSpawnWeightScale = 1;
         // Create a new config file and save defaults
         printf("Config file '%s' not found. Creating it.\n", filename);
         configfile_migrate_vr_glove_calibration();
@@ -1406,6 +1444,10 @@ static void configfile_load_internal(const char *filename, bool* error) {
                             break;
                         case CONFIG_TYPE_UINT:
                             sscanf(tokens[1], "%u", option->uintValue);
+                            if (option->uintValue == &configVrSpawnWeightFireFlower) suppliedSpawnWeights |= 1;
+                            if (option->uintValue == &configVrSpawnWeightHammerSuit) suppliedSpawnWeights |= 2;
+                            if (option->uintValue == &configVrSpawnWeightSonicShoes) suppliedSpawnWeights |= 4;
+                            if (option->uintValue == &configVrSpawnWeightBigHands) suppliedSpawnWeights |= 8;
                             break;
                         case CONFIG_TYPE_BIND:
                             for (int i = 0; i < MAX_BINDS && i < numTokens - 1; ++i)
@@ -1454,6 +1496,19 @@ NEXT_OPTION:
 
     fs_close(file);
 
+    if (configVrSpawnWeightScale == 0) {
+        unsigned int* weights[] = { &configVrSpawnWeightFireFlower, &configVrSpawnWeightHammerSuit,
+                                   &configVrSpawnWeightSonicShoes, &configVrSpawnWeightBigHands };
+        for (unsigned i = 0; i < 4; ++i) {
+            if (suppliedSpawnWeights & (1U << i)) {
+                // Match the original-reward scale change from 5 to 50.
+                // Clamp before multiplying, including malformed saved input.
+                *weights[i] = MAX(1, MIN(10, *weights[i])) * 10;
+            }
+        }
+        configVrSpawnWeightScale = 1;
+    }
+
     configfile_migrate_vr_glove_calibration();
     configfile_migrate_vr_camera_height();
     configfile_migrate_vr_interaction_tuning();
@@ -1469,7 +1524,14 @@ NEXT_OPTION:
     // toggle was removed so an old saved false value cannot disable input.
     configVrMotionControllerInput = true;
 
-    if (configGraphicsBackend < GAPI_GL || configGraphicsBackend > GAPI_MAX) { configGraphicsBackend = GAPI_GL; }
+    // Legacy saved DX11 settings cannot be used by this build's OpenXR bridge.
+    configGraphicsBackend = GAPI_GL;
+    configVrSpawnWeightFireFlower = MAX(1, MIN(100, configVrSpawnWeightFireFlower));
+    configVrSpawnWeightHammerSuit = MAX(1, MIN(100, configVrSpawnWeightHammerSuit));
+    configVrSpawnWeightSonicShoes = MAX(1, MIN(100, configVrSpawnWeightSonicShoes));
+    configVrSpawnWeightBigHands = MAX(1, MIN(100, configVrSpawnWeightBigHands));
+    configVrSpawnWeightPropeller = MAX(1, MIN(100, configVrSpawnWeightPropeller));
+    configVrSpawnWeightPowerStar = MAX(1, MIN(100, configVrSpawnWeightPowerStar));
 
     if (configFramerateMode < 0 || configFramerateMode > RRM_MAX) { configFramerateMode = 0; }
     if (configFrameLimit < 30)   { configFrameLimit = 30; }
@@ -1542,6 +1604,22 @@ void configfile_reset_keybinds(bool extra) {
     }
 }
 
+static bool configfile_migrate_vr_physical_actions(void) {
+    if (sConfigVrPhysicalActionsVersion >= 1) return false;
+    configVrPhysicalJumping = true;
+    configVrPhysicalSwimming = true;
+    configVrPhysicalPunching = true;
+    configVrPhysicalGrabbing = true;
+    configVrPhysicalClimbing = true;
+    configVrSwingClimbRelease = true;
+    configVrMotionControlledDive = true;
+    configVrMotionControlledGroundDive = true;
+    // Deliberately preserve crouching, bindings, cheats and tuning. Persist
+    // this once so a player's subsequent disable remains disabled.
+    sConfigVrPhysicalActionsVersion = 1;
+    return true;
+}
+
 void configfile_load(void) {
     bool configReadError = false;
 #ifdef DEVELOPMENT
@@ -1558,6 +1636,10 @@ void configfile_load(void) {
     // the legacy config key readable for older profiles, but never allow an
     // old `false` value to silently turn the optimized path back off.
     configVrFlameOptimizations = true;
+    if (!configReadError && configfile_migrate_vr_physical_actions()) {
+        configfile_save(configfile_name());
+        configfile_save(configfile_backup_name());
+    }
 }
 
 static void configfile_save_option(FILE *file, const struct ConfigOption *option, bool isSecret) {

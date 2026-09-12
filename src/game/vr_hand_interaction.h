@@ -12,6 +12,11 @@ void vr_hand_interaction_update(struct MarioState* mario);
 void vr_hand_interaction_audio_shutdown(void);
 void vr_hand_interaction_release_custom_music(void);
 void vr_special_moves_replace_powerup(void);
+bool vr_special_moves_power_star_active(void);
+f32 vr_special_moves_power_star_fade(void);
+#define VR_POWER_STAR_CHOMP_EXPLODE 3
+bool vr_special_moves_spawn_cheat_power_star(void);
+bool vr_special_moves_power_star_attack(struct MarioState* mario, struct Object* object);
 bool vr_hand_interaction_should_hide_body(struct MarioState* mario);
 void vr_hand_interaction_update_roomscale_body(
     struct MarioState* mario
@@ -69,9 +74,6 @@ bool vr_hand_interaction_is_tracked_held_object(
 bool vr_hand_interaction_is_hammer_charge_object(
     struct Object* object
 );
-bool vr_hand_interaction_is_hammer_suit_shell_object(
-    struct Object* object
-);
 u32 vr_hand_interaction_get_tracked_held_hand(
     struct Object* object
 );
@@ -104,6 +106,8 @@ enum VrBoxReward {
     VR_BOX_REWARD_HAMMER_SUIT,
     VR_BOX_REWARD_SONIC_SHOES,
     VR_BOX_REWARD_BIG_HANDS,
+    VR_BOX_REWARD_PROPELLER,
+    VR_BOX_REWARD_POWER_STAR,
 };
 enum VrBoxReward vr_special_moves_roll_box_reward(
     struct Object* box,
@@ -113,6 +117,13 @@ bool vr_special_moves_spawn_cheat_fire_flower(void);
 bool vr_special_moves_spawn_cheat_hammer_suit(void);
 bool vr_special_moves_spawn_cheat_sonic_shoes(void);
 bool vr_special_moves_spawn_cheat_big_hands(void);
+bool vr_special_moves_spawn_cheat_propeller(void);
+bool vr_special_moves_propeller_active(void);
+bool vr_special_moves_propeller_can_burst(struct MarioState* mario);
+void vr_special_moves_propeller_recharge(struct MarioState* mario);
+void vr_special_moves_propeller_stomp_burst(struct MarioState* mario);
+Gfx* geo_vr_twirl_tornado(s32 callContext, struct GraphNode* node, void* context);
+#define VR_PROPELLER_ACTION_ARG 0x100U
 enum VrCheatSpawnCap {
     VR_CHEAT_SPAWN_WING_CAP,
     VR_CHEAT_SPAWN_VANISH_CAP,

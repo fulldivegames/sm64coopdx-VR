@@ -367,15 +367,19 @@ void gfx_opengl_performance_stats_get(
 }
 #endif
 
+// Position, two texture coordinates, fog, lightmap, and every supported
+// combiner input. Seven entries overflowed on legal multi-input materials.
+#define OPENGL_MAX_SHADER_ATTRIBUTES (5 + SHADER_INPUT_8 - SHADER_INPUT_1 + 1)
+
 struct ShaderProgram {
     uint64_t hash;
     GLuint opengl_program_id;
     uint8_t num_inputs;
     bool used_textures[2];
     uint8_t num_floats;
-    GLint attrib_locations[7];
+    GLint attrib_locations[OPENGL_MAX_SHADER_ATTRIBUTES];
     GLint uniform_locations[10];
-    uint8_t attrib_sizes[7];
+    uint8_t attrib_sizes[OPENGL_MAX_SHADER_ATTRIBUTES];
     uint8_t num_attribs;
     bool used_noise;
     bool used_lightmap;
@@ -457,8 +461,8 @@ static uint32_t opengl_enabled_attrib_mask = 0;
 static bool opengl_attrib_layout_valid = false;
 static uint8_t opengl_attrib_layout_num = 0;
 static size_t opengl_attrib_layout_num_floats = 0;
-static GLint opengl_attrib_layout_locations[7];
-static uint8_t opengl_attrib_layout_sizes[7];
+static GLint opengl_attrib_layout_locations[OPENGL_MAX_SHADER_ATTRIBUTES];
+static uint8_t opengl_attrib_layout_sizes[OPENGL_MAX_SHADER_ATTRIBUTES];
 static int opengl_curtex = 0;
 
 static uint32_t frame_count;
@@ -919,7 +923,7 @@ static const char *shader_item_to_str(uint32_t item, bool with_alpha, bool only_
             case SHADER_COMBINEDA:
                 return "texel.a";
             case SHADER_NOISE:
-                return "noise.a";
+                return "noise";
         }
     }
     return "unknown";
@@ -984,13 +988,6 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
     append_line(vs_buf, &vs_len, "#version 120");
 #endif
     append_line(vs_buf, &vs_len, "attribute vec4 aVtxPos;");
-    if (use_normal_map) {
-#ifdef USE_GLES
-        append_line(vs_buf, &vs_len, "varying highp vec4 vNormalMapPosition;");
-#else
-        append_line(vs_buf, &vs_len, "varying vec4 vNormalMapPosition;");
-#endif
-    }
     for (int t = 0; t < 2; t++) {
         if (ccf.used_textures[t]) {
             vs_len += sprintf(vs_buf + vs_len, "attribute vec2 aTexCoord%d;\n", t);
@@ -1032,9 +1029,6 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
     for (int i = 0; i < ccf.num_inputs; i++) {
         vs_len += sprintf(vs_buf + vs_len, "vInput%d = aInput%d;\n", i + 1, i + 1);
     }
-    if (use_normal_map) {
-        append_line(vs_buf, &vs_len, "vNormalMapPosition = aVtxPos;");
-    }
     append_line(vs_buf, &vs_len, "gl_Position = aVtxPos;");
     append_line(vs_buf, &vs_len, "}");
 
@@ -1056,13 +1050,6 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
             fs_len += sprintf(fs_buf + fs_len, "varying vec2 vTexCoord%d;\n", t);
 #endif
         }
-    }
-    if (use_normal_map) {
-#ifdef USE_GLES
-        append_line(fs_buf, &fs_len, "varying highp vec4 vNormalMapPosition;");
-#else
-        append_line(fs_buf, &fs_len, "varying vec4 vNormalMapPosition;");
-#endif
     }
     if (opt_fog) {
         append_line(fs_buf, &fs_len, "varying vec4 vFog;");
@@ -1231,7 +1218,11 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
     if (ccf.used_textures[1]) {
         if (opt_light_map) {
             append_line(fs_buf, &fs_len, "vec4 texVal1 = sampleTex(uTex1, vLightMap, uTex1Size, uTex1Filter, uFilter);");
-            append_line(fs_buf, &fs_len, "texVal0.rgb *= uLightmapColor.rgb;");
+            // Some mod/cache combiners use only texture 1. Do not emit a
+            // reference to texture 0 unless its sample was actually declared.
+            if (ccf.used_textures[0]) {
+                append_line(fs_buf, &fs_len, "texVal0.rgb *= uLightmapColor.rgb;");
+            }
             append_line(fs_buf, &fs_len, "texVal1.rgb = texVal1.rgb * texVal1.rgb + texVal1.rgb;");
         } else {
             append_line(fs_buf, &fs_len, "vec4 texVal1 = sampleTex(uTex1, vTexCoord1, uTex1Size, uTex1Filter, uFilter);");
@@ -1378,9 +1369,14 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
 
     const GLchar *sources[2] = { vs_buf, fs_buf };
     const GLint lengths[2] = { vs_len, fs_len };
-    GLint success;
+    GLint success = GL_FALSE;
 
     GLuint shader_program = glCreateProgram();
+    if (!shader_program) {
+        sys_fatal("Could not create an OpenGL shader program (GL error 0x%04x).\n"
+                  "The graphics context may be unavailable or out of resources.",
+                  (unsigned)glGetError());
+    }
 #if defined(__ANDROID__)
     const bool loaded_program_binary =
         gfx_opengl_try_program_binary(shader_program, shader_binary_hash);
@@ -1393,11 +1389,16 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
         const uint64_t source_compile_start = gfx_opengl_monotonic_ns();
 #endif
         GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+        if (!vertex_shader) {
+            sys_fatal("Could not create an OpenGL vertex shader (GL error 0x%04x).\n"
+                      "The graphics context may be unavailable or out of resources.",
+                      (unsigned)glGetError());
+        }
         glShaderSource(vertex_shader, 1, &sources[0], &lengths[0]);
         glCompileShader(vertex_shader);
         glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
         if (!success) {
-            char error_log[1024];
+            char error_log[4096] = {0};
             GLsizei log_length = 0;
             fprintf(stderr, "Vertex shader compilation failed\n");
             glGetShaderInfoLog(
@@ -1407,19 +1408,29 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
                 error_log
             );
             fprintf(stderr, "%s\n", error_log);
+            fprintf(stderr, "Vertex source:\n%s\n", vs_buf);
+            fflush(stderr);
 #ifdef __ANDROID__
             sys_fatal("Vertex shader compilation failed: %s\nSource:\n%s", error_log, vs_buf);
 #else
-            sys_fatal("vertex shader compilation failed (see terminal)");
+            sys_fatal("Vertex shader compilation failed:\n%s\nGPU: %s\nOpenGL: %s\nGLSL: %s\nPlease send this error text with your report.",
+                error_log[0] ? error_log : "Driver returned no compiler log.",
+                glGetString(GL_RENDERER), glGetString(GL_VERSION), glGetString(GL_SHADING_LANGUAGE_VERSION));
 #endif
         }
 
         GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+        if (!fragment_shader) {
+            sys_fatal("Could not create an OpenGL fragment shader (GL error 0x%04x).\n"
+                      "The graphics context may be unavailable or out of resources.",
+                      (unsigned)glGetError());
+        }
         glShaderSource(fragment_shader, 1, &sources[1], &lengths[1]);
         glCompileShader(fragment_shader);
+        success = GL_FALSE;
         glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
         if (!success) {
-            char error_log[1024];
+            char error_log[4096] = {0};
             GLsizei log_length = 0;
             fprintf(stderr, "Fragment shader compilation failed\n");
             glGetShaderInfoLog(
@@ -1429,10 +1440,14 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
                 error_log
             );
             fprintf(stderr, "%s\n", error_log);
+            fprintf(stderr, "Fragment source:\n%s\n", fs_buf);
+            fflush(stderr);
 #ifdef __ANDROID__
             sys_fatal("Fragment shader compilation failed: %s\nSource:\n%s", error_log, fs_buf);
 #else
-            sys_fatal("fragment shader compilation failed (see terminal)");
+            sys_fatal("Fragment shader compilation failed:\n%s\nGPU: %s\nOpenGL: %s\nGLSL: %s\nPlease send this error text with your report.",
+                error_log[0] ? error_log : "Driver returned no compiler log.",
+                glGetString(GL_RENDERER), glGetString(GL_VERSION), glGetString(GL_SHADING_LANGUAGE_VERSION));
 #endif
         }
 
@@ -1448,9 +1463,10 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
         glAttachShader(shader_program, vertex_shader);
         glAttachShader(shader_program, fragment_shader);
         glLinkProgram(shader_program);
+        success = GL_FALSE;
         glGetProgramiv(shader_program, GL_LINK_STATUS, &success);
         if (!success) {
-            char error_log[1024];
+            char error_log[4096] = {0};
             GLsizei log_length = 0;
             fprintf(stderr, "Shader program linking failed\n");
             glGetProgramInfoLog(
@@ -1460,7 +1476,11 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(struct ColorC
                 error_log
             );
             fprintf(stderr, "%s\n", error_log);
-            sys_fatal("shader program linking failed (see terminal)");
+            fprintf(stderr, "Vertex source:\n%s\nFragment source:\n%s\n", vs_buf, fs_buf);
+            fflush(stderr);
+            sys_fatal("Shader program linking failed:\n%s\nGPU: %s\nOpenGL: %s",
+                error_log[0] ? error_log : "Driver returned no linker log.",
+                glGetString(GL_RENDERER), glGetString(GL_VERSION));
         }
 
         // Once linked, the program owns the compiled code. Keeping every
@@ -1941,6 +1961,10 @@ static void gfx_opengl_init(void) {
     }
 
     opengl_enabled_attrib_mask = 0;
+    fprintf(stderr, "[GFX] Vendor: %s; GPU: %s; OpenGL: %s; GLSL: %s\n",
+        glGetString(GL_VENDOR), glGetString(GL_RENDERER),
+        glGetString(GL_VERSION), glGetString(GL_SHADING_LANGUAGE_VERSION));
+    fflush(stderr);
     opengl_attrib_layout_valid = false;
     glGenBuffers(1, &opengl_vbo);
 

@@ -9,6 +9,7 @@
 #include "interaction.h"
 #include "mario_step.h"
 #include "vr_hand_interaction.h"
+#include "vr_propeller_motion.h"
 #include "pc/lua/smlua.h"
 #include "game/hardcoded.h"
 
@@ -885,7 +886,9 @@ void apply_gravity(struct MarioState *m) {
         return;
     }
 
-    if (m->action == ACT_TWIRLING && m->vel[1] < 0.0f) {
+    if (m->action == ACT_TWIRLING && (m->actionArg & VR_PROPELLER_ACTION_ARG)) {
+        m->vel[1] = vr_propeller_vertical_velocity(m->vel[1], (m->input & INPUT_Z_DOWN) != 0);
+    } else if (m->action == ACT_TWIRLING && m->vel[1] < 0.0f) {
         apply_twirl_gravity(m);
     } else if (m->action == ACT_SHOT_FROM_CANNON) {
         m->vel[1] -= 1.0f;
@@ -972,6 +975,8 @@ s32 perform_air_step(struct MarioState *m, u32 stepArg) {
 
     s32 stepResultOverride = 0;
     if (smlua_call_event_hooks(HOOK_BEFORE_PHYS_STEP, m, STEP_TYPE_AIR, stepArg, &stepResultOverride)) {
+        if (stepResultOverride == AIR_STEP_LANDED && m->floor)
+            vr_special_moves_propeller_recharge(m);
         return stepResultOverride;
     }
 
@@ -1016,6 +1021,10 @@ s32 perform_air_step(struct MarioState *m, u32 stepArg) {
         m->peakHeight = m->pos[1];
     }
 
+    // Recharge on contact, even when slope/lava contact returns Mario to an
+    // airborne action before the next interaction tick.
+    if (stepResult == AIR_STEP_LANDED && m->floor)
+        vr_special_moves_propeller_recharge(m);
     m->terrainSoundAddend = mario_get_terrain_sound_addend(m);
 
     if (m->action != ACT_FLYING && m->action != ACT_BUBBLED) {

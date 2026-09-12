@@ -6,6 +6,8 @@
 #include "djui_panel_join.h"
 #include "djui_panel_join_message.h"
 #include "djui_panel_confirm.h"
+#include "djui_panel_menu.h"
+#include "pc/configfile.h"
 #include "djui_ctx_display.h"
 #include "djui_fps_display.h"
 #include "djui_lua_profiler.h"
@@ -156,14 +158,45 @@ void djui_init(void) {
     sDjuiInited = true;
 }
 
-void djui_init_late(void) {
+static void djui_startup_menus(void) {
+    gDjuiInMainMenu = true;
     djui_panel_main_create(NULL);
     if (configLanguage[0] == '\0') {
         gPanelLanguageOnStartup = true;
         djui_panel_language_create(NULL);
     }
 
-    // djui_panel_debug_create();
+}
+
+static void djui_welcome_ok(UNUSED struct DjuiBase* caller) {
+    configWelcomeAcknowledged = true;
+    djui_panel_shutdown(); // Persists acknowledgment before normal startup.
+    djui_startup_menus();
+}
+
+void djui_init_late(void) {
+    // ROM validation has completed before this stage. A pending welcome
+    // survives the ROM-picker restart, but upgrading an old profile opts out.
+    if (!configWelcomeAcknowledged) {
+        struct DjuiThreePanel* panel = djui_panel_menu_create("Welcome!", false);
+        struct DjuiBase* body = djui_three_panel_get_body(panel);
+        struct DjuiText* text = djui_text_create(body,
+            "Before diving into the game, check out Settings! There are lots "
+            "of optional features and customizable settings to adjust to "
+            "your liking. Make the experience your own.");
+        djui_base_set_size_type(&text->base, DJUI_SVT_RELATIVE, DJUI_SVT_ABSOLUTE);
+        djui_base_set_size(&text->base, 1.0f, 64);
+        djui_base_compute_tree(&text->base);
+        djui_base_set_size(&text->base, 1.0f,
+            26.0f * djui_text_count_lines(text, 12) + 8.0f);
+        djui_text_set_alignment(text, DJUI_HALIGN_CENTER, DJUI_VALIGN_TOP);
+        djui_button_create(body, "OK", DJUI_BUTTON_STYLE_NORMAL, djui_welcome_ok);
+        // Root panel: Back is a no-op, and OK is the only selectable item.
+        djui_panel_add(NULL, panel, NULL);
+        gInteractableOverridePad = true;
+    } else {
+        djui_startup_menus();
+    }
     djui_cursor_create();
 }
 

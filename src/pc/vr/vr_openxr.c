@@ -6,6 +6,7 @@
 #include "pc/configfile.h"
 #include "pc/vr/vr.h"
 #include "pc/vr/vr_openxr.h"
+#include "pc/vr/vr_tracking_math.h"
 
 #ifdef _WIN32
 
@@ -28,6 +29,9 @@
 
 static GLboolean sPreviousEyeSrgbEnabled;
 static double sFrameWorkStartMs, sFrameWaitMs, sFrameBudgetMs, sLastSlowFrameLogMs;
+static double sTimingWindowStart, sTimingWaitTotal, sTimingWorkTotal, sTimingSubmitTotal;
+static double sTimingWorkMax;
+static unsigned sTimingFrames;
 
 static double vr_frame_clock_ms(void) {
     static LARGE_INTEGER frequency;
@@ -2354,22 +2358,20 @@ static XrQuaternionf vr_openxr_yaw_only_orientation(
     // A tracking-origin recenter establishes horizontal forward only. Using
     // the full headset quaternion here made a tilted head redefine world-up,
     // leaving the entire view permanently rolled or pitched after recenter.
-    const float yaw = atan2f(
-        2.0f * (
-            orientation->w * orientation->y +
-            orientation->x * orientation->z
-        ),
-        1.0f - 2.0f * (
-            orientation->x * orientation->x +
-            orientation->y * orientation->y
-        )
-    );
-    const float halfYaw = yaw * 0.5f;
+    const float q[4]={orientation->x,orientation->y,orientation->z,orientation->w};
+    float yaw[4]={0,0,0,1};
+    if (configVrCameraMode == VR_CAMERA_MODE_THIRD_PERSON) {
+        vr_tracking_yaw_reference(q,yaw);
+    } else {
+        // Preserve the existing first-person tracking convention verbatim.
+        const float angle = atan2f(
+            2.0f * (q[3] * q[1] + q[0] * q[2]),
+            1.0f - 2.0f * (q[0] * q[0] + q[1] * q[1]));
+        yaw[1] = sinf(angle * 0.5f);
+        yaw[3] = cosf(angle * 0.5f);
+    }
     const XrQuaternionf reference = {
-        0.0f,
-        sinf(halfYaw),
-        0.0f,
-        cosf(halfYaw)
+        yaw[0],yaw[1],yaw[2],yaw[3]
     };
     return reference;
 }
@@ -4077,6 +4079,28 @@ bool vr_openxr_end_frame(void) {
     const double submitEndMs = vr_frame_clock_ms();
     const double workMs = submitStartMs - sFrameWorkStartMs;
     const double submitMs = submitEndMs - submitStartMs;
+    if (configVrShowFps && layerCount > 0) {
+        if (!sTimingWindowStart) sTimingWindowStart = submitEndMs;
+        sTimingWaitTotal += sFrameWaitMs;
+        sTimingWorkTotal += workMs;
+        sTimingSubmitTotal += submitMs;
+        sTimingWorkMax = fmax(sTimingWorkMax, workMs);
+        ++sTimingFrames;
+        if (submitEndMs - sTimingWindowStart >= 5000.0) {
+            printf("[VR XR timing] avg wait/work/submit=%.2f/%.2f/%.2f ms "
+                   "work-max=%.2f budget=%.2f ms samples=%u target=%ux%u\n",
+                   sTimingWaitTotal / sTimingFrames, sTimingWorkTotal / sTimingFrames,
+                   sTimingSubmitTotal / sTimingFrames, sTimingWorkMax, sFrameBudgetMs,
+                   sTimingFrames, sColorSwapchains[0].width, sColorSwapchains[0].height);
+            sTimingWindowStart = 0;
+            sTimingWaitTotal = sTimingWorkTotal = sTimingSubmitTotal = sTimingWorkMax = 0;
+            sTimingFrames = 0;
+        }
+    } else {
+        sTimingWindowStart = 0;
+        sTimingWaitTotal = sTimingWorkTotal = sTimingSubmitTotal = sTimingWorkMax = 0;
+        sTimingFrames = 0;
+    }
     if (sFrameBudgetMs > 0 && layerCount > 0 &&
         (workMs > sFrameBudgetMs * 1.5 || sFrameWaitMs > sFrameBudgetMs * 2 ||
          submitMs > sFrameBudgetMs) && submitEndMs - sLastSlowFrameLogMs > 1000) {

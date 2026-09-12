@@ -24,6 +24,7 @@
 #include "pc/vr/vr.h"
 #include "hardcoded.h"
 #include "vr_hand_interaction.h"
+#include "vr_propeller_motion.h"
 
 /* |description|
 Plays a spinning sound at specific animation frames for flips (usually side flips or certain jump flips).
@@ -919,8 +920,11 @@ s32 act_twirling(struct MarioState *m) {
     if (!m) { return 0; }
     s16 startTwirlYaw = m->twirlYaw;
     s16 yawVelTarget;
+    const bool propeller = (m->actionArg & VR_PROPELLER_ACTION_ARG) != 0;
 
-    if (m->input & INPUT_A_DOWN) {
+    if (propeller) {
+        yawVelTarget = vr_propeller_tornado_spin((m->input & INPUT_Z_DOWN) != 0);
+    } else if (m->input & INPUT_A_DOWN) {
         yawVelTarget = 0x2000;
     } else {
         yawVelTarget = 0x1800;
@@ -929,9 +933,9 @@ s32 act_twirling(struct MarioState *m) {
     m->angleVel[1] = approach_s32(m->angleVel[1], yawVelTarget, 0x200, 0x200);
     m->twirlYaw += m->angleVel[1];
 
-    set_character_animation(m, m->actionArg == 0 ? CHAR_ANIM_START_TWIRL : CHAR_ANIM_TWIRL);
+    set_character_animation(m, (m->actionArg & ~VR_PROPELLER_ACTION_ARG) == 0 ? CHAR_ANIM_START_TWIRL : CHAR_ANIM_TWIRL);
     if (is_anim_past_end(m)) {
-        m->actionArg = 1;
+        m->actionArg = (m->actionArg & VR_PROPELLER_ACTION_ARG) | 1;
     }
 
     if (startTwirlYaw > m->twirlYaw) {

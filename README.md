@@ -13,9 +13,20 @@
   Native ARM64/OpenXR VR for Meta Quest. No PC is required after installation.
 </p>
 
-> **Current release: v0.9 — Visuals, Speedrunning and VR Improvements**
+> **Current release: v0.9.2 — Physical Gestures and New Power-Ups**
 
 ### What's new
+
+v0.9.2 adds **Propeller Mushroom** and **Power Star**, physical jumping and
+swimming, customizable spawn weights, and expanded gesture tutorials. It also
+improves text-state isolation, carried/thrown camera tracking, full-height
+physical wall kicks, cap cosmetics and power-up music. See
+[release notes](release_notes.txt) for the complete changes.
+
+**One-time controls update:** the first 0.9.2 launch enables physical jumping,
+swimming, punching, grabbing, climbing, swing release and motion dives.
+Physical crouching and bindings stay unchanged. You can disable the actions
+again in settings; subsequent launches preserve those choices.
 
 This release includes an expanded **VR Tutorial**: Big Hands
 grabbing, climbing and punching; **VR > Speedrunning** with named splits,
@@ -39,6 +50,7 @@ Retained from the previous release:
 
 - Shared PC VR/Quest renderer now batches vertex uploads while preserving draw order and render state. This greatly improved the tested Sonic Adventure DX map on Quest and applies to other maps using the same renderer; gains depend on the map and hardware.
 - First public Big Hands power-up, included in the special spawn pool: extended grabbing, punching, and terrain climbing, with independent hand contacts and 1.5x increased reach.
+- Big Hands lasts 30 seconds by default; Special Moves includes an optional 60-second timer.
 - Tightened Big Hands surface-grab proximity and kept the first-person body hidden after attachment until landing.
 - Fixed a stop-hosting crash caused by stale special-move audio handles during session teardown.
 - Retained the VR-specific updater, controller bindings, optional normal maps, and existing filters.
@@ -80,7 +92,7 @@ The release is a single APK. Players do not need Git, Android Studio, Gradle, AD
 ### Install the APK
 
 1. Open this repository's [latest release](https://github.com/fulldivegames/sm64coopdx-VR-Standalone-Physics-based/releases/latest).
-2. Download `SM64-Co-Op-DX-VR-Quest-v0.8.4.apk` under **Assets**.
+2. Download the Quest `.apk` for the selected release under **Assets**.
 3. Connect the Quest to your computer and allow the USB debugging prompt inside the headset.
 4. Open SideQuest and confirm that the headset indicator is connected.
 5. Click **Install APK file from folder** in SideQuest, choose the downloaded APK, and wait for the install-success message.
@@ -108,7 +120,7 @@ The standalone build loads compatible SM64 Co-Op DX mods from this easy-to-acces
 /sdcard/SM64VR/mods/
 ```
 
-1. Install or update to v0.8.4 and launch it once. Android opens the **Allow access to manage all files** page; enable access for **SM64 Co-Op DX VR Standalone**. This permission is used for the shared mod, DynOS, palette, and shader-cache folders.
+1. Install or update to the current build and launch it once. Android opens the **Allow access to manage all files** page; enable access for **SM64 Co-Op DX VR Standalone**. This permission is used for the shared mod, DynOS, palette, and shader-cache folders.
 2. Close and reopen the game once after granting access. The game creates `/sdcard/SM64VR/mods/` automatically.
 3. Download a mod compatible with SM64 Co-Op DX. The official community browser is [mods.sm64coopdx.com](https://mods.sm64coopdx.com/mods/).
 4. Extract the archive. Copy the **extracted mod folder**, not the `.zip`, into `SM64VR/mods` with SideQuest's file manager. The mod files must be directly inside their own folder rather than inside an extra duplicate folder.
@@ -127,7 +139,7 @@ The previous private `Android/data/com.fulldivegames.sm64coopdxvr/files/mods/` l
 
 ### Install DynOS packs
 
-Launch the game once after installing v0.8.2. The game automatically creates:
+Launch the game once after installing. The game automatically creates:
 
 ```text
 /sdcard/SM64VR/dynos/packs/
@@ -186,7 +198,7 @@ Open **Settings > VR > Controller Bindings** to exchange the movement/camera sti
 
 First Person Mode is the default. The headset controls the view and, by default, Mario's forward direction. The stick controls travel while Mario retains his established acceleration, momentum, skids, jumps, and landings. Camera Settings can instead use the left or right controller as the calibrated facing source.
 
-Swimming, Wing Cap flight, shell riding, cannon aiming, and pole dismounts follow the configured look direction. Looking up or down controls vertical swimming and flight. A normal action press is still required for swimming strokes.
+Swimming, Wing Cap flight, shell riding, cannon aiming, and pole dismounts follow the configured look direction. Looking up or down controls vertical swimming and flight. Swimming supports physical strokes when enabled, or the normal action button.
 
 ### Punching
 
@@ -200,7 +212,7 @@ Normal, Wing, Metal, and Vanish Caps can also be collected by touching them with
 
 ### Motion-controlled diving
 
-Punch both hands forward within the configured timing window. In the air this can trigger a dive; while running fast enough on the ground it can trigger a running dive. Air and ground motion dives have separate switches.
+Punch both hands forward within the timing window. Air dives require a deliberate 20 cm forward stroke at 1.65 m/s; ground dives use a lighter 13 cm stroke at 1.20 m/s. Facing follows headset yaw, not its up/down tilt. Upward jump gestures take priority. No additional settle timer is required. Mario's dive travel direction is unchanged, and ground dives still require running speed. Air and ground motion dives have separate switches.
 
 ### Physical crouching and ground pounds
 
@@ -257,9 +269,23 @@ Open the player palette editor and choose **Color Palette** to open the controll
 
 Custom presets remain saved in `/sdcard/SM64VR/palettes/`. The generated **Fireflower** preset controls the temporary Fire Flower outfit, so players can edit that preset to customize their powered-up colors; the previously selected normal palette is restored when the power ends.
 
+## Current development-build gestures
+
+These instructions describe the current local build; they do not announce a new published release.
+
+- **Physical Swimming** (on by default for new settings): reach outward to recover, then pull water toward your torso. Normal strokes follow headset aim. Raise your hands overhead and pull straight down to swim upward while looking forward. Either or both hands work. See [swimming instructions](docs/PHYSICAL-SWIMMING.txt).
+- **Physical Jumping** (on by default for new settings): hold Grip and punch straight upward within 15 degrees of vertical. Keep a hand raised for a held jump; lower/release to shorten it. Alternate hands for double/triple jumps, with a small landing buffer. The gesture also wall-kicks during the normal window. **Use Triggers Instead of Grips** is optional and off by default; change your crouch binding first. See [jumping instructions](docs/PHYSICAL-JUMPING.txt).
+- **Physical Crouch Depth**: directly below Physical Crouching in Immersion > Movement & Body. Default 20%, range 10–50%; lower values require less crouching. Existing saved values are not overwritten.
+- **Special spawn weights**: range 1–100, default 50. These are relative weights, not literal percentage odds. Use each power-up's enable checkbox to remove it from the pool.
+- **Big Hands**: 30 seconds by default; the optional 60-second timer applies on the next pickup. This stronger-power category has half the relative spawn weight of ordinary power-ups at equal slider values, including when the longer timer is enabled.
+- **Propeller Mushroom**: 60 seconds. Jump again in the air with a button or physical jump gesture to burst upward once per airtime. Hold crouch (button or physical) for fast descent, an opaque tornado and 3x spin; release to resume a transparent, slow glide. Ordinary twirling is unchanged. See [controls](docs/PROPELLER-MUSHROOM.txt).
+- Crossed Tree Billboards defaults on and Look Toward Spawned Star defaults off for fresh settings. Neither forces an existing player's choice to change.
+- **Physical climb release**: hard swings provide full jump-off ascent; soft swings provide a shorter release, and simply letting go drops normally. Free Climb and Big Hands track each hand's attachment independently.
+- **Power-up accessories**: Propeller and Hammer helmets follow the head and are hidden in first person; Hammer Suit also has its back shell. Grab Cap at Any Time lets you inspect the cosmetic helmet, without ending the power-up. A held Hammer helmet temporarily blocks hammer spawning in that hand. Edit/export the `Propeller` palette to customize the helmet (Cap) and rotor (Emblem). Landing squarely on a stompable enemy relaunches Propeller Mario at normal burst strength; side hits and Bullies do not.
+
 ## Comfort, immersion, and visual options
 
-All options in **Settings > VR > Immersion** default to enabled:
+**Settings > VR > Immersion** contains comfort and gesture options with individual defaults. Physical Jumping, Physical Swimming, and Physical Crouching are on by default for new settings. Saved choices are preserved across updates. Options include:
 
 - Smooth crouch and sinking-surface camera motion
 - Full-view face-stuck blackout with readable stereo text
@@ -278,12 +304,12 @@ Painting entries use a short white comfort fade. The optional True First Person 
 | Submenu | Main controls |
 | --- | --- |
 | Camera Settings | Camera mode, height/position, previous Mario body height, FOV, facing source, facing calibration, and standalone color controls |
-| Controller Bindings | Motion-controller enablement, stick selection, button mappings, and optional trigger punch |
+| Controller Bindings | Stick selection, press-to-bind button mappings, and optional trigger punch; right-primary still confirms menus |
 | Motion Control Settings | Punching, grabbing, climbing, dives, jump turning, hit ranges, and Bowser tuning |
 | Model Settings | Body visibility/placement, feet-only, ledge and pole-flip visibility, glove scale, rotation, and position |
 | Performance | Render scale from 10%-100% (80% default), optional FPS counter, 72/90/120 Hz refresh selection, fog control, flame/lava optimization, and Ultra Performance Mode |
 | HUD Settings | HUD opacity and corner spread |
-| Immersion | Default-on comfort, audio, camera, underwater, cannon, and physical-crouch options |
+| Immersion | Comfort, camera, audio, crossed trees, and Movement & Body: physical crouching, jumping and swimming |
 | Effects | Twirl tornado visual effect and optional normal maps |
 | Cheats | Level Select, Spawn Menu, climb-any-surface, special-move charge times, flying speed, swimming speed, and running speed |
 | Experimental | True First Person, True Diving, Arms Mode, and original movement options |
@@ -407,7 +433,7 @@ When **WiddlePets** is enabled, Server Settings adds a **Pets** button that open
 - **Co-op develops visual or gameplay problems:** disconnecting may restore normal behavior. If not, close and reopen the game.
 - **A gameplay mod breaks the server:** gameplay-changing mods can conflict with VR or multiplayer state and may require every affected player to disconnect or restart. Test without mods before reporting a base-game issue.
 - **Large lobby performance:** many connected players, actors, character packs, or synchronized gameplay mods can reduce standalone performance.
-- **Text chat:** open **Chat** from the pause menu and use the controller keyboard. The microphone button is visible but speech recognition currently does not work and is still being developed.
+- **Text chat:** open **Chat** and use the controller keyboard. Press Mic to listen, then press Mic again to finish and transcribe. Closing the keyboard cancels. PC uses bundled offline speech recognition; Quest uses Android dictation.
 - **Poor performance:** lower Render Scale, disable expensive mods, and restart the headset after long development/testing sessions.
 - **Controls feel wrong:** reset Controller Bindings and Camera Settings, then recalibrate the selected facing source.
 - **Updating fails:** uninstalling removes private app data. Prefer installing the newer APK over the existing package and back up saves first.

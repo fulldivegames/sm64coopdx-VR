@@ -63,8 +63,13 @@ bool vr_apply_haptic(
     float durationSeconds,
     float frequency
 );
-void vr_queue_physical_punch(uint32_t handIndex);
+void vr_queue_physical_punch(uint32_t handIndex, const struct VrControllerState* state);
+bool vr_get_physical_punch_velocity(uint32_t handIndex, float velocity[3]);
 bool vr_consume_physical_punch(uint32_t handIndex);
+void vr_set_jump_gesture_priority(bool reserved);
+bool vr_jump_gesture_has_priority(void);
+void vr_queue_motion_dive(uint32_t handIndex);
+bool vr_consume_motion_dive(uint32_t handIndex);
 void vr_shutdown(void);
 
 void vr_on_graphics_ready(void);

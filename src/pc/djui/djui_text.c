@@ -192,15 +192,14 @@ void djui_text_set_text(struct DjuiText* text, const char* message) {
         return;
     }
 
-    // deallocate old message
-    if (text->message != NULL) {
-        free(text->message);
-    }
-
-    // allocate and set new message
-    u16 messageLen = strlen(message);
-    text->message = calloc((messageLen + 1), sizeof(char));
-    memcpy(text->message, message, sizeof(char) * (messageLen + 1));
+    // Keep the old string intact if allocation fails (also permits a source
+    // substring of the old message). Mod text is not limited to 65535 bytes.
+    size_t messageLen = strlen(message);
+    char *replacement = malloc(messageLen + 1);
+    if (replacement == NULL) return;
+    memcpy(replacement, message, messageLen + 1);
+    free(text->message);
+    text->message = replacement;
 }
 
 void djui_text_set_font(struct DjuiText* text, const struct DjuiFont* font) {
@@ -253,7 +252,13 @@ static void djui_text_render_single_char(struct DjuiText* text, char* c) {
         return;
     }
 
-    create_dl_translation_matrix(DJUI_MTX_NOPUSH, sTextRenderX - sTextRenderLastX, (sTextRenderY - sTextRenderLastY) * -1.0f, 0);
+    // A failed translation must not draw at the old cursor or advance it.
+    Mtx* translation = alloc_display_list(sizeof(Mtx));
+    if (translation == NULL) return;
+    guTranslate(translation, sTextRenderX - sTextRenderLastX,
+        (sTextRenderY - sTextRenderLastY) * -1.0f, 0);
+    gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(translation),
+        G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
     text->font->render_char(c);
 
     sTextRenderLastX = sTextRenderX;
@@ -274,10 +279,9 @@ static void djui_text_render_char(struct DjuiText* text, char* c) {
     djui_text_render_single_char(text, c);
 }
 
-static f32 djui_text_measure_word_width(struct DjuiText* text, char* message) {
+static f32 djui_text_measure_word_width(struct DjuiText* text, char* message, const char *end) {
     f32 width = 0;
     char* c = message;
-    const char *end = message + strlen(message);
     while (*c != '\0') {
 
         // color code
@@ -331,7 +335,7 @@ static void djui_text_read_line(struct DjuiText* text, char** message, f32* line
 
         // check to see if this word exceeds size
         if (!onLastLine && *lastC == ' ' && *c != ' ') {
-            f32 wordWidth = djui_text_measure_word_width(text, c);
+            f32 wordWidth = djui_text_measure_word_width(text, c, end);
             if (*lineWidth + wordWidth >= maxLineWidth) {
                 *message = c;
                 return;

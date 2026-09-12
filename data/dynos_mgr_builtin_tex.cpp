@@ -2450,6 +2450,8 @@ static const struct BuiltinTexInfo sDynosBuiltinTexs[] = {
 #ifndef VERSION_EU
     define_builtin_tex(intro_seg7_texture_0700C4A0, "levels/intro/3_tm.rgba16.png", 16, 16, G_IM_FMT_RGBA, G_IM_SIZ_16b),
 #endif
+    // Append new entries: keep existing texture indices stable for mod packs.
+    define_builtin_tex(vr_propeller_mushroom_texture, "actors/propeller_mushroom/propeller.rgba16.png", 32, 32, G_IM_FMT_RGBA, G_IM_SIZ_16b),
 };
 
 const Texture* DynOS_Builtin_Tex_GetFromName(const char* aDataName) {

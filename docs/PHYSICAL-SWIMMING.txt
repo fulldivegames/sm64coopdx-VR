@@ -1,0 +1,33 @@
+Physical Swimming (PC VR and standalone Quest)
+
+On by default for new settings. Toggle VR Settings > Immersion > Movement & Body > Physical Swimming.
+The first 0.9.2 launch enables physical actions once (not crouching). You can
+disable them again; subsequent launches preserve that choice.
+Normal strokes propel you in the direction the headset is looking.
+Reach outward to recover, then pull water backward/downward. Pulls remain
+valid beside and behind your torso; a 4 cm recovery re-arms the next stroke.
+Each productive pull adds thrust in that direction; looking down lets you dive.
+Existing drift does not rotate when you look around. Recovery adds no thrust.
+Either hand, alternating hands, and both hands use independent stroke state.
+Existing button swimming remains available.
+
+For upward swimming while looking forward, raise your hands overhead and pull
+downward within 20 degrees of vertical. That power phase propels you upward.
+Normal surface strokes follow headset direction; either hand can take a turn.
+The shallow-water camera remains lowered by 30 game units, fading out at depth.
+Normal water collisions, surface limits, currents and buoyancy still apply.
+
+Strength is unchanged from the last test: 1.6575 times the initial implementation.
+The Swimming Speed setting remains active. Holding objects, metal-cap movement,
+physical climbing, cutscenes, menus and death do not generate strokes.
+Recenter, tracking loss, level transitions and discontinuities reset the detector.
+
+Implementation: two fixed-size per-hand states updated once per game tick.
+Pose-to-pose controller travel uses a gameplay camera rotation, independently of
+render-only glove transforms and scene traversal. No glove offsets affect thrust.
+Instantaneous runtime velocity is not required, so slow pulls and strokes that
+finish between game ticks still contribute. Head motion alone adds no travel.
+There are no new scene traversals or collision queries. A productive pull needs
+4 cm of travel; impulse per stroke and total drift speed remain capped.
+Synthetic regression tests cover direction, recovery, curved pulls, repeated
+strokes and invalid tracking. Real gesture consistency still needs headset testing.

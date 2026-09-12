@@ -626,4 +626,7 @@
 #define MODEL_VR_SONIC_SHOES                 0xFF // vr_sonic_shoes_geo
 #define MODEL_VR_BIG_HANDS                  0x100 // vr_big_hands_geo
 
+#define MODEL_VR_PROPELLER_MUSHROOM 0x101
+#define MODEL_VR_PROPELLER_HELMET 0x102
+#define MODEL_VR_HAMMER_HELMET 0x103
 #endif // MODEL_IDS_H

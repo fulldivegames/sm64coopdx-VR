@@ -29,11 +29,19 @@ static bool sPhysicalPunchPending[VR_CONTROLLER_COUNT] = {
     false
 };
 
+static float sPhysicalPunchVelocity[VR_CONTROLLER_COUNT][3];
+static bool sPhysicalPunchVelocityValid[VR_CONTROLLER_COUNT];
+static bool sMotionDivePending[VR_CONTROLLER_COUNT];
+static bool sJumpGesturePriority;
+
 static void vr_clear_physical_punches(void) {
+    sJumpGesturePriority = false;
     for (uint32_t hand = 0;
          hand < VR_CONTROLLER_COUNT;
          hand++) {
         sPhysicalPunchPending[hand] = false;
+        sMotionDivePending[hand] = false;
+        sPhysicalPunchVelocityValid[hand] = false;
     }
 }
 
@@ -324,10 +332,41 @@ bool vr_apply_haptic(
     );
 }
 
-void vr_queue_physical_punch(uint32_t handIndex) {
+void vr_queue_physical_punch(uint32_t handIndex, const struct VrControllerState* state) {
     if (sVrActive && handIndex < VR_CONTROLLER_COUNT) {
         sPhysicalPunchPending[handIndex] = true;
+        sPhysicalPunchVelocityValid[handIndex] = state && state->gripLinearVelocityValid;
+        if (sPhysicalPunchVelocityValid[handIndex]) {
+            for (int i = 0; i < 3; ++i) {
+                sPhysicalPunchVelocity[handIndex][i] = state->gripLinearVelocity[i];
+            }
+        }
     }
+}
+
+bool vr_get_physical_punch_velocity(uint32_t handIndex, float velocity[3]) {
+    if (!sVrActive || handIndex >= VR_CONTROLLER_COUNT ||
+        !sPhysicalPunchVelocityValid[handIndex]) return false;
+    for (int i = 0; i < 3; ++i) velocity[i] = sPhysicalPunchVelocity[handIndex][i];
+    return true;
+}
+
+void vr_set_jump_gesture_priority(bool reserved) {
+    sJumpGesturePriority=reserved;
+    if(reserved) for(unsigned i=0;i<VR_CONTROLLER_COUNT;i++) {
+        sPhysicalPunchPending[i]=false;
+        sMotionDivePending[i]=false;
+    }
+}
+bool vr_jump_gesture_has_priority(void) { return sJumpGesturePriority; }
+void vr_queue_motion_dive(uint32_t handIndex) {
+    if(sVrActive && !sJumpGesturePriority && handIndex<VR_CONTROLLER_COUNT)
+        sMotionDivePending[handIndex]=true;
+}
+bool vr_consume_motion_dive(uint32_t handIndex) {
+    if(handIndex>=VR_CONTROLLER_COUNT)return false;
+    bool pending=sMotionDivePending[handIndex];sMotionDivePending[handIndex]=false;
+    return sVrActive && !sJumpGesturePriority && pending;
 }
 
 bool vr_consume_physical_punch(uint32_t handIndex) {

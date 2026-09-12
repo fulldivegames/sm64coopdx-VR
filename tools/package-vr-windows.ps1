@@ -77,8 +77,13 @@ Copy-Item -LiteralPath (Join-Path $buildPath "libstdc++-6.dll") -Destination $st
 Copy-Item -LiteralPath (Join-Path $buildPath "libwinpthread-1.dll") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $buildPath "normal_maps.bin") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repoRoot "docs/PC-VR-PLAYER-GUIDE.txt") -Destination (Join-Path $stagePath "README.txt")
+Copy-Item -LiteralPath (Join-Path $repoRoot "release_notes.txt") -Destination (Join-Path $stagePath "release_notes.txt")
 Copy-Item -LiteralPath (Join-Path $repoRoot "tools/Launch-VR-Diagnostics.cmd") -Destination $stagePath
 Copy-Item -LiteralPath (Join-Path $repoRoot "docs/VR-SPEEDRUN.txt") -Destination $stagePath
+Copy-Item -LiteralPath (Join-Path $repoRoot "docs/PROPELLER-MUSHROOM.txt") -Destination $stagePath
+Copy-Item -LiteralPath (Join-Path $repoRoot "docs/PHYSICAL-JUMPING.txt") -Destination $stagePath
+Copy-Item -LiteralPath (Join-Path $repoRoot "docs/PHYSICAL-SWIMMING.txt") -Destination $stagePath
+Copy-Item -LiteralPath (Join-Path $repoRoot "docs/POWER-UP-SPAWN-WEIGHTS.txt") -Destination $stagePath
 
 $licensesPath = Join-Path $stagePath "licenses"
 New-Item -ItemType Directory -Path $licensesPath | Out-Null
@@ -110,6 +115,37 @@ if ($romFiles.Count -ne 0) {
 }
 
 Compress-Archive -LiteralPath $stagePath -DestinationPath $zipPath -CompressionLevel Optimal
+
+# A complete game update excluding only the immutable, checksum-identified model.
+# Keep the full fresh-install archive intact; stream entries into a second ZIP.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$updateName = "$packageName-update.zip"
+$updatePath = Join-Path $outputPath $updateName
+$manifestPath = Join-Path $outputPath "$packageName-update.json"
+if ((Test-Path -LiteralPath $updatePath) -or (Test-Path -LiteralPath $manifestPath)) {
+    throw 'Update outputs already exist; refusing to overwrite them.'
+}
+$modelRelative = 'speech/ggml-small-q5_1.bin'
+$modelHash = (Get-FileHash -LiteralPath (Join-Path $stagePath $modelRelative) -Algorithm SHA256).Hash.ToLowerInvariant()
+$sourceZip = [IO.Compression.ZipFile]::OpenRead($zipPath)
+try {
+    $updateZip = [IO.Compression.ZipFile]::Open($updatePath, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($entry in $sourceZip.Entries) {
+            if ($entry.FullName -eq "$packageName/$modelRelative") { continue }
+            $copy = $updateZip.CreateEntry($entry.FullName, [IO.Compression.CompressionLevel]::Optimal)
+            $inputStream = $entry.Open(); $outputStream = $copy.Open()
+            try { $inputStream.CopyTo($outputStream) } finally { $inputStream.Dispose(); $outputStream.Dispose() }
+        }
+    } finally { $updateZip.Dispose() }
+} finally { $sourceZip.Dispose() }
+$manifest = @{
+    schema=1; version=$Version; model_sha256=$modelHash
+    full_sha256=(Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    update_sha256=(Get-FileHash -LiteralPath $updatePath -Algorithm SHA256).Hash.ToLowerInvariant()
+} | ConvertTo-Json
+[IO.File]::WriteAllText($manifestPath, $manifest, [Text.UTF8Encoding]::new($false))
+Write-Host "Also created $updatePath and $manifestPath. Publish all three PC assets together."
 
 Write-Host "Created player package: $zipPath"
 Write-Host "The package contains no ROM, map, debug database, or backup executable."

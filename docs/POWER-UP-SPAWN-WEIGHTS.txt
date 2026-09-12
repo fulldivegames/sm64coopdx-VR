@@ -1,0 +1,32 @@
+Power-Up Spawn/Enable
+
+Each box power-up has its existing enable checkbox and a Spawn Weight slider
+from 1 to 100. Default weight is 50. These are relative weights, NOT percentages.
+Disabling the checkbox excludes the item completely, regardless of its weight.
+The box's original reward always has weight 50 and cannot be disabled here.
+Rasengan is an ability toggle, not a random box pickup, so it has no weight.
+
+Stronger powers in the 30-second category (currently Big Hands) use HALF the
+relative spawn weight of ordinary powers at the same slider setting. The
+optional 60-second timer does not remove this category's rarity penalty.
+The slider still defaults to 50; no saved slider values are changed.
+Internally ordinary weights are doubled, avoiding rounding at odd values or 1.
+
+With all five power-ups enabled at 50, Big Hands is 50/550 = about 9.1%;
+each ordinary power-up and the original reward is 100/550 = about 18.2%.
+With Big Hands at 1 and the others at 50, Big Hands is 1/501 = about 0.2%;
+each other power-up and the original reward is 100/501 = about 20.0%.
+All disabled means original contents every time. All at 100 still leaves
+original contents possible (100/1000 = 10%). Reset restores all sliders to 50.
+Slider edits apply together when leaving this menu. Odds are normalized
+automatically across the eligible pool; the menu shows only simple weights.
+Old preview weights are converted once from the old 5-default scale to the
+50-default scale (multiply by ten, capped at 100). Existing enable choices
+are preserved. Profiles without old weight settings use 50 directly.
+
+This deliberately replaces the old 50%-original/50%-special split with a
+single weighted pool. If a pickup cannot be allocated, it is removed from
+that roll and the remaining outcomes are tried. Existing multiplayer safety
+restrictions and reward authority are unchanged. Settings are local to the
+client that performs the existing authorized box roll; they are not new
+server-wide settings.

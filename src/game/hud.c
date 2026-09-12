@@ -156,7 +156,7 @@ void patch_hud_interpolated(f32 delta) {
             0
         );
         gSPMatrix(sPowerMeterDisplayListPos, VIRTUAL_TO_PHYSICAL(mtx),
-              G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+              G_MTX_MODELVIEW | (vr_is_active() ? G_MTX_LOAD : G_MTX_MUL) | G_MTX_PUSH);
     }
 }
 
@@ -217,6 +217,12 @@ void render_dl_power_meter(s16 numHealthWedges) {
         return;
     }
 
+    // The meter can reappear after a long hidden interval (notably on water
+    // entry). Own its projection just like the other VR HUD icons, rather
+    // than inheriting whichever transform the preceding HUD pass left.
+    if (vr_is_active()) {
+        create_dl_vr_hud_matrix();
+    }
     guTranslate(
         mtx,
         (f32)vr_hud_group_x(sPowerMeterHUD.x, 140),
@@ -227,7 +233,7 @@ void render_dl_power_meter(s16 numHealthWedges) {
     sPowerMeterDisplayListPos = gDisplayListHead;
 
     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx++),
-              G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
+              G_MTX_MODELVIEW | (vr_is_active() ? G_MTX_LOAD : G_MTX_MUL) | G_MTX_PUSH);
     gSPSaveState(gDisplayListHead++, G_STATE_GEOMETRY_MODE);
     gSPClearGeometryMode(gDisplayListHead++, G_ZBUFFER | G_CULL_BOTH);
     gDPSetEnvColor(gDisplayListHead++, 0xFF, 0xFF, 0xFF,

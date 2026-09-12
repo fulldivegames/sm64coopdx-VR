@@ -1,7 +1,15 @@
-SM64 CO-OP DX VR v0.9 - VISUALS, SPEEDRUNNING AND VR IMPROVEMENTS
+SM64 CO-OP DX VR v0.9.2 - PHYSICAL GESTURES AND NEW POWER-UPS
+
+The first 0.9.2 launch enables physical jumping, swimming, punching, grabbing,
+climbing, swing release and ground/air motion dives once. Crouching and bindings
+are unchanged. Disable any unwanted actions in settings; later launches retain
+your changes. Raised fists sustain full wall kicks as well as ordinary jumps.
 
 Extract the complete ZIP into its own folder and launch SM64-Co-Op-DX-VR.exe.
 Keep all included DLLs and resource folders beside the executable.
+This VR build always uses OpenGL, including flat-screen startup. Old DirectX 11
+settings and renderer command-line overrides are ignored. This does not change
+Windows, SteamVR or Virtual Desktop settings; DirectX-only hardware is unsupported.
 You must supply your own legally obtained Super Mario 64 US ROM.
 The game can reuse your previously supplied ROM from its user-data folder
 (normally AppData/Roaming/sm64coopdx), so updates do not require another copy.
@@ -24,11 +32,18 @@ with a regular flat-screen Co-op DX installation.
 Your existing save data and settings are not included in this package.
 
 CURRENT FEATURES
+Propeller Mushroom lasts 60 seconds: jump again in the air (button or physical
+jump gesture) for one burst per airtime. Hold crouch for fast descent and a
+3x-speed opaque tornado; release to return to slow glide. Ordinary twirling
+is unchanged. See PROPELLER-MUSHROOM.txt and the in-game Special Moves tutorial.
 The in-game VR Tutorial covers Big Hands, speedrunning, visual options and caps.
 Big Hands uses the enlarged hands for grabbing and physical punches. Hold Grip
 at a surface and pull to climb; alternate hands between supported surfaces,
 trees and hangables. Release Grip to detach. Special powers are disabled in
-Regular Public Lobbies.
+Regular Public Lobbies. Big Hands lasts 30 seconds by default; enable Big Hands
+60-Second Timer in Special Moves for a 60-second duration. The duration is
+captured when the power-up is collected, so changing the option never alters
+an active pickup.
 
 VR > Speedrunning contains timer setup, split names, size, position and color.
 Choose Split Count and Confirm. Show Timer and Splits enables the viewer;
@@ -45,3 +60,61 @@ PC keyboard dictation runs locally using the included speech folder. Press Mic,
 speak, then press Mic again to finish and transcribe; keep the keyboard open
 while it processes. Closing the keyboard cancels. Set your headset microphone
 as the default recording device. See speech/PC-DICTATION.txt for details.
+
+CURRENT LOCAL GESTURES AND SETTINGS
+
+VR > Immersion > Movement & Body:
+- Physical Swimming defaults on for new settings. Reach outward, then pull water back
+  toward your upper torso. Normal pulls follow headset aim. Pull down from
+  overhead to swim upward. Recovery produces no thrust. Either hand,
+  alternating hands and both hands work. Normal button swimming remains.
+- "Use Triggers Instead of Grips" switches physical jumping and wall kicks
+  to either trigger. Off by default. Change crouch binding before enabling;
+  grabbing and punching still use grips. Hard climb-release swings now give
+  the full jump-off ascent; soft swings and ordinary drops are unchanged.
+- Physical Jumping defaults on for new settings. Hold Grip and punch within 15 degrees
+  of straight up while grounded. Trigger is not needed. Either/both hands can
+  jump; keep one raised to hold Jump, or lower/release to shorten it. Lower and
+  punch again after landing for normal double/triple jumps.
+- Physical Crouching / Ground Pounds is on by default. Physical Crouch Depth
+  defaults to 10%, adjustable from 10 to 50. Lower values need less crouching.
+  Head-tilt compensation reduces accidental crouching when looking down.
+  The setting uses calibrated height; recenter while standing neutrally.
+- Existing saved settings are retained. New defaults do not overwrite them.
+
+Special power-up spawn weights range from 1 to 100, default 50. These are
+relative weights, not literal percentages. Disable a power-up with its checkbox.
+Big Hands lasts 30 seconds; its optional 60-second timer applies at pickup.
+Big Hands has half the relative box-spawn weight of ordinary power-ups at
+equal slider settings, even with its optional 60-second timer enabled.
+Physical Jumping also wall-kicks; its 120 ms landing buffer helps jump chains.
+Crossed Tree Billboards defaults on; Look Toward Spawned Star defaults off.
+Normal maps remain optional and off by default.
+
+Controller Bindings captures the next chosen input. Right-primary still
+confirms menus even if Jump is remapped. Pause defaults to left stick click.
+Mic starts dictation; press it again to finish, rather than cancel. Closing the
+keyboard cancels. Quest uses Android dictation; PC uses its bundled speech files.
+
+Speedrunning has its own VR menu for setup, names, split count, Confirm, HUD
+position/size/color and progressive split reveal. See VR-SPEEDRUN.txt.
+Special > Filters includes Cell Shaded and Super Mario Land. Character Select
+uses a floating theater panel. See PHYSICAL-SWIMMING.txt and PHYSICAL-JUMPING.txt
+for gesture details. These are local-build instructions, not a release notice.
+Propeller Mushroom lasts 60 seconds: jump again in the air (button or physical
+jump gesture) for one burst per airtime. Hold crouch for fast descent and a
+3x-speed opaque tornado; release to glide. Ordinary twirling has no crouch drill.
+Its helmet follows the head and is hidden in first person. Customize/export
+the Propeller palette: Cap = helmet, Emblem = rotor. See PROPELLER-MUSHROOM.txt.
+The Hammer Suit helmet and back shell follow Mario's body. A top stomp on a normally stompable
+enemy relaunches Propeller Mario at full burst strength; side hits and Bullies do not.
+
+Power Star is a small bouncing pickup with its own Super Mario Bros. 3 Star Theme.
+It gives 30 seconds of enemy-contact invincibility, 1.5x running speed and 1.5x
+jump height. Its rainbow tint and music fade over the last four seconds, while
+abilities continue until expiry. Pits and scripted deaths still apply.
+Enable Power Star 60-Second Timer before pickup for the longer duration.
+Power-Up Spawn/Enable groups Big Hands and Power Star under Specials; both
+have half the normal spawn weight. Rasengan / Rasen-Shuriken are under Gestures
+and have no spawn weight. Native caps and dedicated power-up songs keep their
+own music regardless of the alternate-music setting.

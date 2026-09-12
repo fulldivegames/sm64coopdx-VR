@@ -699,6 +699,11 @@ Gfx* geo_switch_mario_cap_on_off(s32 callContext, struct GraphNode* node, UNUSED
     if (callContext == GEO_CONTEXT_RENDER) {
         if (switchCase == NULL || bodyState == NULL) { return NULL; }
         switchCase->selectedCase = bodyState->capState & 1;
+        // Replace only the rendered cap, never Mario's real cap ownership.
+        if (geo_get_processing_object_index() == 0 &&
+            (vr_special_moves_propeller_active() || vr_special_moves_hammer_suit_active())) {
+            switchCase->selectedCase = 1;
+        }
         while (next && (next != node)) {
             if (next->type == GRAPH_NODE_TYPE_TRANSLATION_ROTATION) {
                 if (bodyState->capState & 2) {
@@ -882,8 +887,28 @@ static struct PlayerColor geo_mario_get_player_color(
         palette = player_palette_get_hammer_suit();
     } else if (index == 0 && vr_special_moves_fire_flower_active()) {
         palette = player_palette_get_fire_flower();
+    } else if (index == 0 && vr_special_moves_propeller_active()) {
+        palette = player_palette_get_propeller();
+    }
+    const bool powerStar = index == 0 && vr_special_moves_power_star_active();
+    const f32 starFade = powerStar ? vr_special_moves_power_star_fade() : 0.0f;
+    Lights1 starLight;
+    if (powerStar) {
+        // One cached tint per simulation frame, shared by both eyes/body/gloves.
+        static u32 cachedFrame = (u32)-1;
+        static Lights1 cachedLight;
+        if (cachedFrame != gGlobalTimer) {
+            cachedFrame = gGlobalTimer;
+            const f32 phase = (f32)(gGlobalTimer % 90) * (6.283185307f / 90.0f);
+            const u8 r = 50 + (u8)(205.0f * (0.5f + 0.5f*sinf(phase)));
+            const u8 g = 50 + (u8)(205.0f * (0.5f + 0.5f*sinf(phase + 2.0943951f)));
+            const u8 b = 50 + (u8)(205.0f * (0.5f + 0.5f*sinf(phase + 4.1887902f)));
+            cachedLight = (Lights1)gdSPDefLights1(r*0.8f,g*0.8f,b*0.8f,r,g,b,0x28,0x28,0x28);
+        }
+        starLight = cachedLight;
     }
     for (s32 part = 0; part != PLAYER_PART_MAX; ++part) {
+        if (powerStar && starFade >= 1.0f) { color.parts[part] = starLight; continue; }
         color.parts[part] = (Lights1) gdSPDefLights1(
             // Shadow
             min(palette->parts[part][0] * bodyState->shadeR / 255.0f, 255),
@@ -895,6 +920,17 @@ static struct PlayerColor geo_mario_get_player_color(
             min(palette->parts[part][2] * bodyState->lightB / 255.0f, 255),
             0x28 + bodyState->lightingDirX * 127.0f, 0x28 + bodyState->lightingDirY * 127.0f, 0x28 + bodyState->lightingDirZ * 127.0f
         );
+        if (powerStar) {
+            // Fade the tint, never the body geometry/opacity or invincibility.
+            for (u32 channel = 0; channel < 3; ++channel) {
+                u8 ambient = color.parts[part].a.l.col[channel];
+                u8 diffuse = color.parts[part].l[0].l.col[channel];
+                ambient = (u8)(ambient + (starLight.a.l.col[channel] - ambient) * starFade);
+                diffuse = (u8)(diffuse + (starLight.l[0].l.col[channel] - diffuse) * starFade);
+                color.parts[part].a.l.col[channel] = color.parts[part].a.l.colc[channel] = ambient;
+                color.parts[part].l[0].l.col[channel] = color.parts[part].l[0].l.colc[channel] = diffuse;
+            }
+        }
     }
     return color;
 }

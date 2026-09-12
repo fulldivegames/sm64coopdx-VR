@@ -486,7 +486,15 @@ static void chain_chomp_act_unload_chain(void) {
 /**
  * Update function for chain chomp.
  */
+#include "game/vr_hand_interaction.h"
+
 void bhv_chain_chomp_update(void) {
+    if (o->oAction == VR_POWER_STAR_CHOMP_EXPLODE) {
+        // Native explosion, not the unload action which can respawn the Chomp.
+        // Chain links already clean themselves up when the owner deactivates.
+        obj_explode_and_spawn_coins(80.0f, 1);
+        return;
+    }
     if (!sync_object_is_initialized(o->oSyncID)) {
         struct SyncObject* so = sync_object_init(o, 1000.0f);
         if (so) {
@@ -513,6 +521,13 @@ void bhv_chain_chomp_update(void) {
  * Update function for wooden post.
  */
 void bhv_wooden_post_update(void) {
+    if (o->parentObj != NULL && o->parentObj != o &&
+        obj_has_behavior(o->parentObj, bhvChainChomp) &&
+        (o->parentObj->oAction == VR_POWER_STAR_CHOMP_EXPLODE ||
+         o->parentObj->activeFlags == ACTIVE_FLAG_DEACTIVATED)) {
+        // Keep the post usable, but never write through a defeated owner.
+        o->parentObj = o;
+    }
     if (!sync_object_is_initialized(o->oSyncID)) {
         sync_object_init(o, SYNC_DISTANCE_ONLY_EVENTS);
         sync_object_init_field(o, o->oBehParams);
@@ -594,7 +609,10 @@ void bhv_chain_chomp_gate_init(void) {
  * Update function for chain chomp gate
  */
 void bhv_chain_chomp_gate_update(void) {
-    if (o && o->parentObj && o->parentObj->oChainChompHitGate) {
+    if (o && o->parentObj &&
+        obj_has_behavior(o->parentObj, bhvChainChomp) &&
+        (o->parentObj->oChainChompHitGate ||
+         o->parentObj->oAction == VR_POWER_STAR_CHOMP_EXPLODE)) {
         spawn_mist_particles_with_sound(SOUND_GENERAL_WALL_EXPLOSION);
         set_camera_shake_from_point(SHAKE_POS_SMALL, o->oPosX, o->oPosY, o->oPosZ);
         spawn_mist_particles_variable(0, 0x7F, 200.0f);

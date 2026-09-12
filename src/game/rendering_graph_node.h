@@ -76,6 +76,7 @@ bool vr_get_controller_world_fist_raw_from_state(
     Vec3f worldPosition,
     Vec3f worldVelocity
 );
+bool vr_get_gameplay_tracking_basis(Mat4 inverse);
 bool vr_get_controller_world_fist_reach_target_from_state(
     u32 handIndex,
     const struct VrControllerState* state,
@@ -106,7 +107,10 @@ void vr_commit_roomscale_body_displacement(
     const Vec3f worldDisplacement
 );
 void vr_reset_roomscale_body_tracking(void);
+void vr_absorb_spawn_tracking(void);
 void vr_invalidate_first_person_tracked_world_cache(void);
+void vr_refresh_enemy_camera_anchor(void);
+void vr_rebase_first_person_climb_anchor(Vec3f previousOffset, Vec3f currentOffset);
 
 struct GraphNodeInterpData {
     Vec3s translation;

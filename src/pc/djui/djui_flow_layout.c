@@ -77,6 +77,13 @@ static bool djui_flow_layout_render(struct DjuiBase* base) {
         );
         struct DjuiBase* selected =
             djui_cursor_get_input_controlled_base();
+        // Direct rows retain layout coordinates when clipped; nested input
+        // boxes do not render off-screen and can retain stale coordinates.
+        if (layout->orderedNavigation && selected && djui_flow_layout_contains(base, selected)) {
+            while (selected->parent != base && selected != base) {
+                selected = selected->parent;
+            }
+        }
         if (selected != NULL &&
             selected != layout->lastAutoScrollSelection &&
             djui_flow_layout_contains(base, selected) &&
@@ -124,6 +131,38 @@ static bool djui_flow_layout_render(struct DjuiBase* base) {
 static void djui_flow_layout_destroy(struct DjuiBase* base) {
     struct DjuiFlowLayout* layout = (struct DjuiFlowLayout*)base;
     free(layout);
+}
+
+static struct DjuiBase* djui_flow_first_control(struct DjuiBase* base) {
+    if (!base->visible) return NULL;
+    if (base->interactable && base->interactable->enabled) return base;
+    for (struct DjuiBaseChild* child = base->child; child; child = child->next) {
+        struct DjuiBase* found = djui_flow_first_control(child->base);
+        if (found) return found;
+    }
+    return NULL;
+}
+
+bool djui_flow_layout_navigate(struct DjuiBase* selected, s8 direction, struct DjuiBase** pick) {
+    for (struct DjuiBase* row = selected; row && row->parent; row = row->parent) {
+        struct DjuiBase* parent = row->parent;
+        if (parent->render != djui_flow_layout_render ||
+            !((struct DjuiFlowLayout*)parent)->orderedNavigation) continue;
+        struct DjuiBase* previous = NULL;
+        bool passed = false;
+        for (struct DjuiBaseChild* child = parent->child; child; child = child->next) {
+            if (child->base == row) {
+                if (direction < 0) { *pick = previous; return true; }
+                passed = true;
+                continue;
+            }
+            struct DjuiBase* control = djui_flow_first_control(child->base);
+            if (control && passed) { *pick = control; return true; }
+            if (control) previous = control;
+        }
+        return true; // Do not escape the list at either end.
+    }
+    return false;
 }
 
 struct DjuiFlowLayout* djui_flow_layout_create(struct DjuiBase* parent) {

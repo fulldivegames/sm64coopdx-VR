@@ -4,11 +4,33 @@
 #include <string.h>
 
 #include "pc/vr/vr.h"
+#include "pc/configfile.h"
+#include "pc/vr/vr_tracking_math.h"
 
 static bool sPoseValid;
 static bool sReferenceValid;
 static bool sRecenterPending = true;
 static bool sPreserveRecenterHeight;
+static bool sRuntimeRecenterPending;
+static int64_t sRuntimeRecenterTime;
+
+void quest_vr_bridge_reference_space_change(int64_t time) {
+    sRuntimeRecenterPending = true;
+    sRuntimeRecenterTime = time;
+}
+
+void quest_vr_bridge_prepare_tracking(int64_t displayTime) {
+    if (sRuntimeRecenterPending && displayTime >= sRuntimeRecenterTime) {
+        sRuntimeRecenterPending = false;
+        // Retain first-person's existing runtime-recenter behavior. Third
+        // person must drop the old LOCAL-space yaw when Meta replaces it.
+        if (configVrCameraMode == VR_CAMERA_MODE_THIRD_PERSON) {
+            sPreserveRecenterHeight = sReferenceValid;
+            sRecenterPending = true;
+            sReferenceValid = false;
+        }
+    }
+}
 static float sReferencePosition[3];
 static float sReferenceRotation[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 static float sHeadPosition[3];
@@ -91,13 +113,21 @@ void quest_vr_bridge_update_views(const float positions[2][3],
     };
     if (sRecenterPending || !sReferenceValid) {
         memcpy(sReferencePosition, center, sizeof(sReferencePosition));
-        const float yaw = atan2f(
-            2.0f * (rotations[0][3] * rotations[0][1] + rotations[0][0] * rotations[0][2]),
-            1.0f - 2.0f * (rotations[0][0] * rotations[0][0] + rotations[0][1] * rotations[0][1]));
-        sReferenceRotation[0] = 0.0f;
-        sReferenceRotation[1] = -sinf(yaw * 0.5f);
-        sReferenceRotation[2] = 0.0f;
-        sReferenceRotation[3] = cosf(yaw * 0.5f);
+        float reference[4]={0,0,0,1};
+        if (configVrCameraMode == VR_CAMERA_MODE_THIRD_PERSON) {
+            vr_tracking_yaw_reference(rotations[0],reference);
+        } else {
+            // Preserve the established first-person tracking convention.
+            const float yaw = atan2f(
+                2.0f * (rotations[0][3] * rotations[0][1] + rotations[0][0] * rotations[0][2]),
+                1.0f - 2.0f * (rotations[0][0] * rotations[0][0] + rotations[0][1] * rotations[0][1]));
+            reference[1] = sinf(yaw * 0.5f);
+            reference[3] = cosf(yaw * 0.5f);
+        }
+        sReferenceRotation[0] = -reference[0];
+        sReferenceRotation[1] = -reference[1];
+        sReferenceRotation[2] = -reference[2];
+        sReferenceRotation[3] = reference[3];
         if (!sPreserveRecenterHeight) {
             sCalibratedHeadHeight = fabsf(center[1]);
             if (sCalibratedHeadHeight < 0.75f || sCalibratedHeadHeight > 2.50f)
